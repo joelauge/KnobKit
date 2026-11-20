@@ -38,6 +38,8 @@ struct ConfiguratorView: View {
             GeneralView()
         case .monitor:
             MonitorView(log: state.monitor, simulate: simulate)
+        case .lights:
+            LightShowView(player: state.lightShow)
         }
     }
 }
@@ -126,6 +128,11 @@ private struct Sidebar: View {
                             Button("Delete", role: .destructive) { state.deleteProfile(profile.id) }
                         }
                     }
+
+                    section("Lights").padding(.top, 14)
+                    SideRow(title: "Light show", selected: isSelected(.lights), live: state.lightShow.isPlaying) {
+                        Image(systemName: "sparkles").font(.system(size: 13, weight: .light))
+                    } action: { state.selection = .lights }
 
                     section("Settings").padding(.top, 14)
                     SideRow(title: "Knob feel", selected: isSelected(.feel)) {

@@ -4,6 +4,55 @@ import IOKit
 import IOKit.hid
 import KnobCore
 
+/// Opening a keyboard's HID interfaces for output.
+enum KeyboardHID {
+    /// True for keyboards whose backlight KnobKit knows how to drive.
+    static func hasLightingChannel(_ info: HIDDeviceInfo) -> Bool {
+        info.vendorID == AulaLighting.vendorID && AulaLighting.productIDs.contains(info.productID)
+    }
+
+    /// Opens every HID interface of the keyboard `info` belongs to for the duration
+    /// of `body`.
+    static func withDevices(_ info: HIDDeviceInfo, _ body: (Set<IOHIDDevice>) -> Void) {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        // The lights can sit on a different interface of the same keyboard than the knob
+        // does (USB keyboards often split them), so match the product, not the interface.
+        // Devices that report no ids (0:0) are matched by name instead.
+        var match: [String: Any] = [:]
+        if info.vendorID != 0 || info.productID != 0 {
+            match[kIOHIDVendorIDKey] = info.vendorID
+            match[kIOHIDProductIDKey] = info.productID
+        } else {
+            match[kIOHIDProductKey] = info.name
+        }
+        IOHIDManagerSetDeviceMatching(manager, match as CFDictionary)
+        let opened = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        defer { IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone)) }
+        guard opened == kIOReturnSuccess, let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else {
+            Log.write("lights: could not open \(info.name) (0x\(String(opened, radix: 16)))")
+            return
+        }
+        body(devices)
+    }
+
+    /// The interface carrying AULA's lighting channel (usage page 0xFF02, 20-byte
+    /// output reports), on the keyboards known to have one.
+    static func lightingChannel(_ info: HIDDeviceInfo, _ devices: Set<IOHIDDevice>) -> IOHIDDevice? {
+        guard hasLightingChannel(info) else { return nil }
+        return devices.first { device in
+            let pairs = IOHIDDeviceGetProperty(device, kIOHIDDeviceUsagePairsKey as CFString) as? [[String: Any]] ?? []
+            let hasPage = pairs.contains { ($0[kIOHIDDeviceUsagePageKey] as? Int) == AulaLighting.usagePage }
+            let maxOut = IOHIDDeviceGetProperty(device, kIOHIDMaxOutputReportSizeKey as CFString) as? Int ?? 0
+            return hasPage && maxOut >= AulaLighting.packetLength
+        }
+    }
+
+    /// Sends one 20-byte packet on the lighting channel.
+    static func send(_ packet: [UInt8], on channel: IOHIDDevice) -> Bool {
+        IOHIDDeviceSetReport(channel, kIOHIDReportTypeOutput, CFIndex(AulaLighting.reportID), packet, packet.count) == kIOReturnSuccess
+    }
+}
+
 /// Blinks a keyboard's lights as a "KnobKit has this keyboard" signal.
 ///
 /// Two ways, tried in this order:
@@ -39,26 +88,10 @@ final class LEDFlasher {
     }
 
     private func run(_ info: HIDDeviceInfo, times: Int) {
-        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        // The lights can sit on a different interface of the same keyboard than the knob
-        // does (USB keyboards often split them), so match the product, not the interface.
-        // Devices that report no ids (0:0) are matched by name instead.
-        var match: [String: Any] = [:]
-        if info.vendorID != 0 || info.productID != 0 {
-            match[kIOHIDVendorIDKey] = info.vendorID
-            match[kIOHIDProductIDKey] = info.productID
-        } else {
-            match[kIOHIDProductKey] = info.name
+        KeyboardHID.withDevices(info) { devices in
+            if flashBacklight(info, devices, times: times) { return }
+            flashIndicators(info, devices, times: times)
         }
-        IOHIDManagerSetDeviceMatching(manager, match as CFDictionary)
-        let opened = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        defer { IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone)) }
-        guard opened == kIOReturnSuccess, let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else {
-            Log.write("lights: could not open \(info.name) (0x\(String(opened, radix: 16)))")
-            return
-        }
-        if flashBacklight(info, devices, times: times) { return }
-        flashIndicators(info, devices, times: times)
     }
 
     // MARK: Backlight
@@ -66,20 +99,9 @@ final class LEDFlasher {
     /// True when the frames went out. False when this keyboard's lighting channel is
     /// not one we know, so nothing was sent.
     private func flashBacklight(_ info: HIDDeviceInfo, _ devices: Set<IOHIDDevice>, times: Int) -> Bool {
-        guard info.vendorID == AulaLighting.vendorID, AulaLighting.productIDs.contains(info.productID) else { return false }
-        // The interface that carries the vendor channel: usage page 0xFF02, 20-byte
-        // output reports.
-        let channel = devices.first { device in
-            let pairs = IOHIDDeviceGetProperty(device, kIOHIDDeviceUsagePairsKey as CFString) as? [[String: Any]] ?? []
-            let hasPage = pairs.contains { ($0[kIOHIDDeviceUsagePageKey] as? Int) == AulaLighting.usagePage }
-            let maxOut = IOHIDDeviceGetProperty(device, kIOHIDMaxOutputReportSizeKey as CFString) as? Int ?? 0
-            return hasPage && maxOut >= AulaLighting.packetLength
-        }
-        guard let channel else { return false }
+        guard let channel = KeyboardHID.lightingChannel(info, devices) else { return false }
 
-        func send(_ frame: [UInt8]) -> Bool {
-            IOHIDDeviceSetReport(channel, kIOHIDReportTypeOutput, CFIndex(AulaLighting.reportID), frame, frame.count) == kIOReturnSuccess
-        }
+        func send(_ frame: [UInt8]) -> Bool { KeyboardHID.send(frame, on: channel) }
         let on = AulaLighting.wholeBoard(red: 255, green: 255, blue: 255)
         let off = AulaLighting.wholeBoard(red: 0, green: 0, blue: 0)
 

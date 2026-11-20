@@ -101,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        state.lightShow.stop()
         runner.releaseHeldModifiers()
         state.saveNow()
     }
@@ -135,6 +136,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "devices": showConfigurator(.devices)
         case "general": showConfigurator(.general)
         case "monitor": showConfigurator(.monitor)
+        case "lights": showConfigurator(.lights)
+        case "lights:play":
+            if let show = LightShowSource.show(for: state.config.settings.lightShow), let device = state.lightShowDevice {
+                state.lightShow.play(show, on: device)
+            }
+        case "lights:stop": state.lightShow.stop()
+        case "lights:steps:on": state.config.settings.lightShow.wholeKeySteps = true
+        case "lights:steps:off": state.config.settings.lightShow.wholeKeySteps = false
+        case "lights:sheet":
+            // Writes a strip of preview frames to lights.png next to the log.
+            if let show = LightShowSource.show(for: state.config.settings.lightShow) {
+                let url = Log.url.deletingLastPathComponent().appendingPathComponent("lights.png")
+                try? LightShowSheet.render(show)?.representation(using: .png, properties: [:])?.write(to: url)
+            }
         default:
             // action:<base64 JSON of an Action> runs one action directly, whatever app is in front.
             if command.hasPrefix("action:"),
@@ -142,6 +157,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                let action = try? JSONDecoder().decode(Action.self, from: data) {
                 Log.write("test hook: running \(action.summary)")
                 runner.run(action, info: RunInfo())
+                return
+            }
+            if command.hasPrefix("lights:speed:"), let speed = Double(command.dropFirst(13)) {
+                state.config.settings.lightShow.speed = speed
                 return
             }
             if command.hasPrefix("profile:"),

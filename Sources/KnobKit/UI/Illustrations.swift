@@ -1,3 +1,4 @@
+import KnobCore
 import SwiftUI
 
 // MARK: - Dial
@@ -73,45 +74,24 @@ struct DialView: View {
 
 // MARK: - F75 outline
 
-/// The F75's key layout in key units, with macOS key codes where a key can be remapped.
+/// The F75's key layout for drawing, from the shared table in KnobCore.
 enum F75Layout {
     struct Cap {
         let x: CGFloat
         let y: CGFloat
         let w: CGFloat
         let code: Int?
+        let light: Int
     }
 
-    static let width: CGFloat = 16
-    static let height: CGFloat = 6.25
-    static let knobCenter = CGPoint(x: 15.3, y: 0.5)
-    static let knobRadius: CGFloat = 0.58
+    static let width = CGFloat(F75Board.width)
+    static let height = CGFloat(F75Board.height)
+    static let knobCenter = CGPoint(x: F75Board.knobCenterX, y: F75Board.knobCenterY)
+    static let knobRadius = CGFloat(F75Board.knobRadius)
 
-    static let caps: [Cap] = {
-        var out: [Cap] = []
-        func row(_ y: CGFloat, start: CGFloat = 0, _ keys: [(CGFloat, Int?)]) {
-            var x = start
-            for (w, code) in keys {
-                out.append(Cap(x: x, y: y, w: w, code: code))
-                x += w
-            }
-        }
-        func k(_ w: CGFloat, _ code: Int?) -> (CGFloat, Int?) { (w, code) }
-        func ones(_ codes: [Int]) -> [(CGFloat, Int?)] { codes.map { (1, $0) } }
-
-        // Function row: Esc, three groups of four, then the knob.
-        row(0, [k(1, 53)])
-        row(0, start: 1.6, ones([122, 120, 99, 118]))
-        row(0, start: 5.9, ones([96, 97, 98, 100]))
-        row(0, start: 10.2, ones([101, 109, 103, 111]))
-        row(1.25, ones([50, 18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24]) + [k(2, 51), k(1, 117)])
-        row(2.25, [k(1.5, 48)] + ones([12, 13, 14, 15, 17, 16, 32, 34, 31, 35, 33, 30]) + [k(1.5, 42), k(1, 116)])
-        row(3.25, [k(1.75, nil)] + ones([0, 1, 2, 3, 5, 4, 38, 40, 37, 41, 39]) + [k(2.25, 36), k(1, 121)])
-        row(4.25, [k(2.25, nil)] + ones([6, 7, 8, 9, 11, 45, 46, 43, 47, 44]) + [k(1.75, nil), k(1, 126), k(1, 119)])
-        row(5.25, [k(1.25, nil), k(1.25, nil), k(1.25, nil), k(6.25, 49), k(1.25, nil), k(1.25, nil)])
-        row(5.25, start: 13, ones([123, 125, 124]))
-        return out
-    }()
+    static let caps: [Cap] = F75Board.keys.map {
+        Cap(x: CGFloat($0.x), y: CGFloat($0.y), w: CGFloat($0.width), code: $0.keyCode, light: $0.light)
+    }
 }
 
 /// The keyboard drawn in outline, as on the card. The knob is the subject; remapped

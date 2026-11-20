@@ -20,6 +20,8 @@ keys you are holding.
   no macOS volume control.
 - The keyboard's lights flash five times when KnobKit picks it up, so you can see
   which keyboard it is using. On the F75 that is the whole backlight.
+- **Light show** (F75): the keys become pixels. Type a message or load a picture and
+  it slides across the keyboard like a ticker.
 
 ## Compatibility
 
@@ -171,6 +173,30 @@ detents", and a different action when spun fast.
 
 Modes can also remap ordinary keys and shortcuts to any action. Key remaps apply to
 every keyboard, not only the one with the knob.
+
+## Light show
+
+On an F75 connected over Bluetooth or its 2.4G receiver, KnobKit can treat the keys as
+a small screen, about sixteen pixels wide and six tall, and slide a larger picture
+past it:
+
+- **Text** is drawn in a five-row pixel font, in any of ten colours, and scrolls
+  right to left like a ticker.
+- **Image**: any picture file. It is scaled so the keyboard's six rows cover its
+  height, so a wide, short banner (white lettering on black, say) reads as it
+  crosses. A taller picture can be read in several lines, like text: each band slides
+  past in turn.
+- **True key positions**: the rows of a keyboard are offset from each other (the Q
+  row half a key to the right of the number row, the A row three quarters, the Z row
+  one and a quarter). By default each key shows the part of the picture that is
+  physically above it, so upright strokes stay upright. Turning that off reads the
+  rows key under key instead, which leans with the keys.
+- Speed, brightness, soft edges and looping are adjustable while it plays, and the
+  page shows a live preview on a drawing of the keyboard.
+
+It uses the same real-time lighting frames as the connect flash. Nothing is saved on
+the keyboard: stop, and its own lighting effect comes back by itself. Over Bluetooth
+an F75 takes about twelve frames a second.
 
 ## Universal Audio Apollo
 

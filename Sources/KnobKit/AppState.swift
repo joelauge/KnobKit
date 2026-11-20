@@ -31,7 +31,7 @@ final class MonitorLog: ObservableObject {
 
 enum SidebarItem: Hashable {
     case profile(UUID)
-    case feel, devices, general, monitor
+    case feel, devices, general, monitor, lights
 }
 
 // MARK: - Config file
@@ -117,6 +117,7 @@ final class AppState: ObservableObject {
     @Published var learnedDevice: String?
     private var learnTimeout: DispatchWorkItem?
     let monitor = MonitorLog()
+    let lightShow = LightShowPlayer()
     @Published var selection: SidebarItem
 
     /// While a key recorder is listening, the tap lets every key through.
@@ -295,6 +296,11 @@ final class AppState: ObservableObject {
             config.settings.devices.append(device.ref)
             onKnobConnected?(device)
         }
+    }
+
+    /// The connected knob keyboard whose backlight can be driven, if there is one.
+    var lightShowDevice: HIDDeviceInfo? {
+        devices.first { isSelected($0) && KeyboardHID.hasLightingChannel($0) }
     }
 
     /// True while a selected knob device is connected.

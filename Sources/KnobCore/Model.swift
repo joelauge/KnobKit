@@ -654,6 +654,52 @@ public enum HUDPosition: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// What the Light show page plays on the keyboard.
+public struct LightShowSettings: Hashable, Sendable, Codable {
+    public enum Source: String, Codable, Sendable, CaseIterable {
+        case text, image
+    }
+
+    public var source: Source = .text
+    public var text = "I THINK YOU'RE AMAZING"
+    /// Path of the chosen image file.
+    public var imagePath = ""
+    /// Text colour as RRGGBB.
+    public var color = "FFFFFF"
+    /// Key widths per second.
+    public var speed = 8.0
+    /// How many bands an image is read in (1 for a banner).
+    public var lines = 1
+    public var brightness = 1.0
+    public var softEdges = false
+    /// Keep the picture upright over the staggered rows (see `LightShow.upright`).
+    public var upright = true
+    public var wholeKeySteps = false
+    public var loop = true
+
+    public init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case source, text, imagePath, color, speed, lines, brightness, softEdges, upright, wholeKeySteps, loop
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = LightShowSettings()
+        source = c.val(.source, d.source)
+        text = c.val(.text, d.text)
+        imagePath = c.val(.imagePath, d.imagePath)
+        color = c.val(.color, d.color)
+        speed = c.val(.speed, d.speed)
+        lines = c.val(.lines, d.lines)
+        brightness = c.val(.brightness, d.brightness)
+        softEdges = c.val(.softEdges, d.softEdges)
+        upright = c.val(.upright, d.upright)
+        wholeKeySteps = c.val(.wholeKeySteps, d.wholeKeySteps)
+        loop = c.val(.loop, d.loop)
+    }
+}
+
 public struct Settings: Hashable, Sendable, Codable {
     public var enabled = true
     public var deviceMode: DeviceMode = .selected
@@ -667,6 +713,7 @@ public struct Settings: Hashable, Sendable, Codable {
     public var menuBarShowsModeName = false
     /// Flash the keyboard's lights when KnobKit picks it up.
     public var flashOnConnect = true
+    public var lightShow = LightShowSettings()
 
     /// Highest level (dB) the knob may raise an Apollo monitor output to.
     public var monitorCeiling = -20.0
@@ -694,7 +741,7 @@ public struct Settings: Hashable, Sendable, Codable {
         case showHUD, hudOnEveryAction, hudPosition, hudDuration, menuBarShowsModeName
         case doublePressInterval, longPressDuration, chordGrace, virtualHoldTimeout
         case accelSlowRate, accelFastRate, accelMaxMultiplier, fastThreshold
-        case monitorCeiling, flashOnConnect
+        case monitorCeiling, flashOnConnect, lightShow
     }
 
     public init(from decoder: Decoder) throws {
@@ -719,6 +766,7 @@ public struct Settings: Hashable, Sendable, Codable {
         fastThreshold = c.val(.fastThreshold, d.fastThreshold)
         monitorCeiling = c.val(.monitorCeiling, d.monitorCeiling)
         flashOnConnect = c.val(.flashOnConnect, d.flashOnConnect)
+        lightShow = c.val(.lightShow, d.lightShow)
     }
 }
 

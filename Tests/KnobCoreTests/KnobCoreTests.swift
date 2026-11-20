@@ -401,4 +401,154 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(white[19], 0xbc)
         XCTAssertNil(AulaLighting.packet(command: 0x88, sub: 1, payload: [UInt8](repeating: 0, count: 15)))
     }
+
+    func testAulaPerKeyFrames() {
+        // Captured from the vendor app: two groups in one packet.
+        let frame = AulaLighting.perKey([
+            .init(red: 0x00, green: 0xff, blue: 0xff, lights: [0x43]),
+            .init(red: 0xff, green: 0xff, blue: 0x00, lights: [0x27]),
+        ])
+        XCTAssertEqual(frame, [[0x13, 0x88, 0x01, 0x00, 0x1a, 0x00, 0xff, 0xff, 0x01, 0x43, 0xff, 0xff, 0x00, 0x01, 0x27,
+                                0, 0, 0, 0, 0x1e]])
+
+        // A whole board is one group of 80: 84 bytes in six packets, the first five full.
+        let all = AulaLighting.perKey([.init(red: 255, green: 255, blue: 255, lights: F75Board.keys.map(\.light))])
+        XCTAssertEqual(all.count, 6)
+        XCTAssertEqual(all.map { $0[2] }, [6, 6, 6, 6, 6, 6])
+        XCTAssertEqual(all.map { $0[3] }, [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(all.map { $0[4] }, [0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e])
+        for packet in all {
+            XCTAssertEqual(packet.count, 20)
+            XCTAssertEqual(packet[19], UInt8(truncatingIfNeeded: packet[0..<19].reduce(0) { $0 + Int($1) }))
+        }
+
+        // Black groups are dropped; an all-dark frame is a single dark key.
+        XCTAssertEqual(AulaLighting.perKeyPayload([.init(red: 0, green: 0, blue: 0, lights: [1, 2])]), [0, 0, 0, 1, 0])
+    }
+
+    func testF75BoardIsComplete() {
+        XCTAssertEqual(F75Board.keys.count, 80)
+        XCTAssertEqual(Set(F75Board.keys.map(\.light)).count, 80, "every key has its own light")
+        // Column-major, six to a column: the left edge is lights 0 to 5, top to bottom.
+        let leftEdge = F75Board.keys.filter { $0.x == 0 }.sorted { $0.row < $1.row }.map(\.light)
+        XCTAssertEqual(leftEdge, [0, 1, 2, 3, 4, 5])
+        for key in F75Board.keys { XCTAssertEqual(key.light % 6, key.row, "light \(key.light) is in row \(key.row)") }
+        // Every row spans the full sixteen units.
+        for row in 1...4 {
+            let width = F75Board.keys.filter { $0.row == row }.reduce(0) { $0 + $1.width }
+            XCTAssertEqual(width, 16, accuracy: 0.001)
+        }
+    }
+
+    // MARK: Light show
+
+    func testBitmapAverage() {
+        var bitmap = Bitmap(width: 4, height: 2)
+        bitmap.set(0, 0, 255, 255, 255)
+        bitmap.set(1, 0, 255, 0, 0)
+        XCTAssertEqual(bitmap.average(x0: 0, y0: 0, x1: 1, y1: 1).g, 1, accuracy: 0.001)
+        // Half white, half red.
+        let mixed = bitmap.average(x0: 0.5, y0: 0, x1: 1.5, y1: 1)
+        XCTAssertEqual(mixed.r, 1, accuracy: 0.001)
+        XCTAssertEqual(mixed.g, 0.5, accuracy: 0.001)
+        // Outside the image is black, and counts toward the average.
+        XCTAssertEqual(bitmap.average(x0: -1, y0: 0, x1: 1, y1: 1).r, 0.5, accuracy: 0.001)
+        XCTAssertEqual(bitmap.average(x0: 10, y0: 10, x1: 11, y1: 11).r, 0)
+    }
+
+    func testPixelFontRendersFiveRows() {
+        let bitmap = PixelFont.render("HI")
+        // H is 4 wide, a gap, I is 3 wide.
+        XCTAssertEqual(bitmap.width, 8)
+        XCTAssertEqual(bitmap.height, 6)
+        func lit(_ x: Int, _ y: Int) -> Bool { bitmap.pixels[(y * bitmap.width + x) * 3] > 0 }
+        XCTAssertTrue(lit(0, 0) && lit(3, 0) && !lit(1, 0), "top of the H")
+        XCTAssertTrue(lit(0, 2) && lit(1, 2) && lit(2, 2) && lit(3, 2), "bar of the H")
+        XCTAssertFalse((0..<8).contains { lit($0, 5) }, "the bottom row stays dark")
+        // Lower case falls back to capitals, unknown characters to a question mark.
+        XCTAssertEqual(PixelFont.render("hi"), bitmap)
+        XCTAssertEqual(PixelFont.render("\u{1F600}"), PixelFont.render("?"))
+    }
+
+    func testLightShowScrollsRightToLeft() {
+        // A banner that is one white column, six rows tall.
+        var bitmap = Bitmap(width: 1, height: 6)
+        for y in 0..<6 { bitmap.set(0, y, 255, 255, 255) }
+        var show = LightShow(bitmap: bitmap)
+        show.speed = 1
+        show.levels = 2
+        show.upright = false
+        XCTAssertEqual(show.pixelsPerKey, 1, accuracy: 0.0001)
+        XCTAssertEqual(show.lineDuration, 17, accuracy: 0.0001)
+
+        func litKeys(_ time: Double) -> [F75Board.Key] {
+            let lights = Set(show.frame(at: time).flatMap(\.lights))
+            return F75Board.keys.filter { lights.contains($0.light) }
+        }
+        // At the start the column is still off the right edge.
+        XCTAssertTrue(litKeys(0).isEmpty)
+        // One second in it covers x 15…16: the rightmost keys.
+        let entering = litKeys(1)
+        XCTAssertFalse(entering.isEmpty)
+        XCTAssertTrue(entering.allSatisfy { $0.centerX > 14.5 }, "enters at the right edge")
+        // Later it has moved left.
+        let later = litKeys(9)
+        // Key under key: 7, U, J, M and the function key above them.
+        XCTAssertEqual(Set(later.compactMap(\.keyCode)), [26, 32, 38, 46, 97])
+        XCTAssertEqual(Set(later.map(\.row)).count, 5, "one key in each row that has a key there")
+        // After a full pass it is gone, then the loop brings it back.
+        XCTAssertTrue(litKeys(16.99).allSatisfy { F75Board.column(of: $0) == 0 }, "leaves by the left edge")
+        XCTAssertEqual(litKeys(17 + 9).map(\.light), later.map(\.light))
+        show.loop = false
+        XCTAssertTrue(litKeys(40).isEmpty, "without looping it ends dark")
+    }
+
+    func testLightShowFramesFitTheirBudget() {
+        // A busy picture: every pixel a different colour.
+        var bitmap = Bitmap(width: 64, height: 6)
+        for y in 0..<6 { for x in 0..<64 { bitmap.set(x, y, UInt8(x * 4), UInt8(y * 40), UInt8(255 - x * 3)) } }
+        var show = LightShow(bitmap: bitmap)
+        show.levels = 6
+        for time in stride(from: 3.0, to: 9.0, by: 0.7) {
+            let frame = show.frame(at: time, budget: 56)
+            let lights = frame.flatMap(\.lights)
+            XCTAssertEqual(Set(lights).count, lights.count, "no key is listed twice")
+            // Either it fits, or it is down to a single colour.
+            XCTAssertTrue(LightShow.size(frame) <= 56 || frame.count == 1)
+        }
+        // Reading an image in two lines halves its scale.
+        var tall = LightShow(bitmap: Bitmap(width: 24, height: 12))
+        tall.lines = 2
+        XCTAssertEqual(tall.pixelsPerKey, 1, accuracy: 0.0001)
+        XCTAssertEqual(tall.duration, tall.lineDuration * 2, accuracy: 0.0001)
+    }
+
+    func testGridColumnsIgnoreTheStagger() {
+        func column(_ code: Int) -> Int { F75Board.column(of: F75Board.keys.first { $0.keyCode == code }!) }
+        // 1 over Q over A over Z.
+        XCTAssertEqual([18, 12, 0, 6].map(column), [1, 1, 1, 1])
+        // 0 over P over ; over /.
+        XCTAssertEqual([29, 35, 41, 44].map(column), [10, 10, 10, 10])
+        XCTAssertEqual(column(53), 0)   // Esc
+        XCTAssertEqual(column(117), 15) // Delete, the last column
+
+        // Upright mode puts a column where it truly is: over 7, between Y and U.
+        var bitmap = Bitmap(width: 1, height: 6)
+        for y in 0..<6 { bitmap.set(0, y, 255, 255, 255) }
+        var show = LightShow(bitmap: bitmap)
+        show.speed = 1
+        XCTAssertTrue(show.upright, "true key positions are the default")
+        // At 9 s the column covers x 7…8: exactly the 7 key; half of Y and half of U.
+        show.levels = 3
+        let soft = Set(show.frame(at: 9).flatMap(\.lights))
+        let codes = Set(F75Board.keys.filter { soft.contains($0.light) }.compactMap(\.keyCode))
+        XCTAssertTrue(codes.isSuperset(of: [26, 16, 32]), "7 fully, Y and U half each")
+        // With hard edges a stroke lights the nearest key in each row. A little later it
+        // has moved left to x 6.8…7.8: over 7 (7…8), Y (6.5…7.5), H (6.75…7.75) and
+        // N (7.25…8.25), which is one key per row in an upright line.
+        show.levels = 2
+        let hard = Set(show.frame(at: 9.2).flatMap(\.lights))
+        let nearest = Set(F75Board.keys.filter { hard.contains($0.light) && (1...4).contains($0.row) }.compactMap(\.keyCode))
+        XCTAssertEqual(nearest, [26, 16, 4, 45])
+    }
 }

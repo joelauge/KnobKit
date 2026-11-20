@@ -11,65 +11,93 @@ final class HUDModel: ObservableObject {
     @Published var dotCount = 0
 }
 
-private struct VisualEffect: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.material = .hudWindow
-        v.blendingMode = .behindWindow
-        v.state = .active
-        return v
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
-
 private struct HUDView: View {
     @ObservedObject var model: HUDModel
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: model.symbol)
-                .font(.system(size: 26, weight: .semibold))
-                .frame(width: 38, height: 38)
-                .contentTransition(.symbolEffect(.replace))
-            VStack(alignment: .leading, spacing: 5) {
-                Text(model.title)
-                    .font(.system(size: 15, weight: .semibold))
+            gauge
+            VStack(alignment: .leading, spacing: 6) {
+                Text(model.title.uppercased())
+                    .font(.kkDisplay(13))
+                    .tracking(0.6)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 if let subtitle = model.subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.ink2)
                         .lineLimit(1)
                 }
                 if let level = model.level {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.primary.opacity(0.15))
-                            Capsule().fill(.primary.opacity(0.85))
-                                .frame(width: max(4, geo.size.width * level))
-                        }
-                    }
-                    .frame(height: 5)
+                    LevelRuler(level: level)
                 }
                 if model.dotCount > 1 {
-                    HStack(spacing: 5) {
-                        ForEach(0..<model.dotCount, id: \.self) { i in
-                            Capsule()
-                                .fill(.primary.opacity(i == model.dotIndex ? 0.9 : 0.22))
-                                .frame(width: i == model.dotIndex ? 14 : 5, height: 5)
-                        }
+                    HStack(spacing: 8) {
+                        Eyebrow("Mode")
+                        Leader()
+                        Text(String(format: "%02d / %02d", model.dotIndex + 1, model.dotCount))
+                            .font(.kkMono).foregroundStyle(Theme.ink2)
                     }
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(width: 280)
-        .background(VisualEffect())
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .padding(.leading, 14)
+        .padding(.trailing, 18)
+        .padding(.vertical, 12)
+        .frame(width: 290)
+        .background(Theme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.ink.opacity(0.34), lineWidth: 1))
+        .kkRoot()
+    }
+
+    /// The knob itself: pointing at the mode, or at the level, with the action's symbol
+    /// in its cap when there is neither.
+    @ViewBuilder private var gauge: some View {
+        if model.dotCount > 1 {
+            DialView(position: DialView.position(index: model.dotIndex, count: model.dotCount),
+                     majorTicks: model.dotCount, activeTick: model.dotIndex, size: 52)
+        } else if let level = model.level {
+            DialView(position: min(max(level, 0), 1), litScale: true, size: 52)
+        } else {
+            ZStack {
+                Circle().strokeBorder(Theme.ink, lineWidth: 1).frame(width: 40, height: 40)
+                Image(systemName: model.symbol)
+                    .font(.system(size: 17, weight: .light))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 52, height: 52)
+        }
+    }
+}
+
+/// A level drawn as a ruler: a hairline with ticks, filled up to the value.
+private struct LevelRuler: View {
+    let level: Double
+
+    var body: some View {
+        Canvas { ctx, size in
+            let x = (size.width * CGFloat(min(max(level, 0), 1))).rounded()
+            var track = Path()
+            track.move(to: CGPoint(x: 0, y: 1.5))
+            track.addLine(to: CGPoint(x: size.width, y: 1.5))
+            ctx.stroke(track, with: .color(Theme.ink.opacity(0.26)), lineWidth: 1)
+            var filled = Path()
+            filled.move(to: CGPoint(x: 0, y: 1.5))
+            filled.addLine(to: CGPoint(x: x, y: 1.5))
+            ctx.stroke(filled, with: .color(Theme.ink), lineWidth: 3)
+            let count = 20
+            for i in 0...count {
+                let tx = (size.width - 1) * CGFloat(i) / CGFloat(count)
+                var tick = Path()
+                tick.move(to: CGPoint(x: tx.rounded() + 0.5, y: 5))
+                tick.addLine(to: CGPoint(x: tx.rounded() + 0.5, y: i % 5 == 0 ? 10 : 8))
+                ctx.stroke(tick, with: .color(Theme.ink.opacity(tx <= x ? 0.7 : 0.26)), lineWidth: 1)
+            }
+        }
+        .frame(height: 11)
     }
 }
 
@@ -84,7 +112,7 @@ final class HUDController {
 
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 70),
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 290, height: 76),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -113,7 +141,7 @@ final class HUDController {
         model.dotCount = dotCount
 
         let p = ensurePanel()
-        let size = hosting?.fittingSize ?? NSSize(width: 280, height: 70)
+        let size = hosting?.fittingSize ?? NSSize(width: 290, height: 76)
         let screen = NSScreen.main ?? NSScreen.screens.first
         let frame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         var origin = NSPoint(x: frame.midX - size.width / 2, y: frame.minY + 90)
@@ -137,6 +165,15 @@ final class HUDController {
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0.3, s.hudDuration), execute: work)
+    }
+
+    /// Test hook: writes what the HUD currently shows to a PNG.
+    func debugSnapshot(to url: URL) {
+        guard let host = hosting else { return }
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: url)
     }
 
     private func hide() {

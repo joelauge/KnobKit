@@ -10,78 +10,54 @@ func draw(size: CGFloat) -> NSBitmapImageRep {
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
     let ctx = NSGraphicsContext.current!.cgContext
     let s = size / 1024
+    // Lines never go below one pixel, so the small sizes stay legible.
+    func width(_ w: CGFloat) -> CGFloat { max(1, w * s) }
+    func ink(_ alpha: CGFloat) -> CGColor { CGColor(red: 0.925, green: 0.863, blue: 0.722, alpha: alpha) }
 
-    // Rounded-square plate.
+    // Matte black plate with a hairline edge, like the card in the F75's box.
     let plate = CGRect(x: 100 * s, y: 100 * s, width: 824 * s, height: 824 * s)
     let platePath = CGPath(roundedRect: plate, cornerWidth: 185 * s, cornerHeight: 185 * s, transform: nil)
-    ctx.saveGState()
     ctx.addPath(platePath)
-    ctx.clip()
-    let space = CGColorSpaceCreateDeviceRGB()
-    let bg = CGGradient(colorsSpace: space, colors: [
-        CGColor(red: 0.16, green: 0.17, blue: 0.21, alpha: 1),
-        CGColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(bg, start: CGPoint(x: 0, y: plate.maxY), end: CGPoint(x: 0, y: plate.minY), options: [])
-    ctx.restoreGState()
+    ctx.setFillColor(CGColor(red: 0.039, green: 0.039, blue: 0.043, alpha: 1))
+    ctx.fillPath()
+    let edge = plate.insetBy(dx: width(5) / 2, dy: width(5) / 2)
+    ctx.addPath(CGPath(roundedRect: edge, cornerWidth: 182 * s, cornerHeight: 182 * s, transform: nil))
+    ctx.setStrokeColor(ink(0.3))
+    ctx.setLineWidth(width(5))
+    ctx.strokePath()
 
     let center = CGPoint(x: 512 * s, y: 512 * s)
+    func point(_ angle: CGFloat, _ r: CGFloat) -> CGPoint {
+        CGPoint(x: center.x + cos(angle) * r * s, y: center.y + sin(angle) * r * s)
+    }
+    func ring(_ r: CGFloat, _ w: CGFloat, _ alpha: CGFloat) {
+        ctx.setStrokeColor(ink(alpha))
+        ctx.setLineWidth(width(w))
+        ctx.strokeEllipse(in: CGRect(x: center.x - r * s, y: center.y - r * s, width: r * 2 * s, height: r * 2 * s))
+    }
 
-    // Detent ticks around the knob, with the lit arc showing a level.
-    let tickCount = 21
+    // Scale around the knob, bright up to where it points.
+    let level: CGFloat = 0.62
+    let tickCount = size < 64 ? 9 : 21
+    ctx.setLineCap(.round)
     for i in 0..<tickCount {
         let t = CGFloat(i) / CGFloat(tickCount - 1)
         let angle = (225 - 270 * t) * .pi / 180
-        let lit = t <= 0.62
-        ctx.setStrokeColor(lit ? CGColor(red: 1.0, green: 0.62, blue: 0.18, alpha: 1)
-                               : CGColor(red: 1, green: 1, blue: 1, alpha: 0.22))
-        ctx.setLineWidth(15 * s)
-        ctx.setLineCap(.round)
-        let inner = 318 * s, outer = 356 * s
-        ctx.move(to: CGPoint(x: center.x + cos(angle) * inner, y: center.y + sin(angle) * inner))
-        ctx.addLine(to: CGPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
+        ctx.setStrokeColor(ink(t <= level + 0.001 ? 1 : 0.3))
+        ctx.setLineWidth(width(12))
+        ctx.move(to: point(angle, 318))
+        ctx.addLine(to: point(angle, 362))
         ctx.strokePath()
     }
 
-    // Knob body.
-    let radius = 250 * s
-    let knob = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -18 * s), blur: 40 * s, color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.6))
-    ctx.setFillColor(CGColor(red: 0.3, green: 0.31, blue: 0.35, alpha: 1))
-    ctx.fillEllipse(in: knob)
-    ctx.restoreGState()
-    ctx.saveGState()
-    ctx.addEllipse(in: knob)
-    ctx.clip()
-    let metal = CGGradient(colorsSpace: space, colors: [
-        CGColor(red: 0.80, green: 0.81, blue: 0.84, alpha: 1),
-        CGColor(red: 0.42, green: 0.43, blue: 0.47, alpha: 1),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(metal, start: CGPoint(x: 0, y: knob.maxY), end: CGPoint(x: 0, y: knob.minY), options: [])
-    ctx.restoreGState()
-
-    // Knurled cap.
-    let capRadius = 196 * s
-    let cap = CGRect(x: center.x - capRadius, y: center.y - capRadius, width: capRadius * 2, height: capRadius * 2)
-    ctx.saveGState()
-    ctx.addEllipse(in: cap)
-    ctx.clip()
-    let capGradient = CGGradient(colorsSpace: space, colors: [
-        CGColor(red: 0.26, green: 0.27, blue: 0.31, alpha: 1),
-        CGColor(red: 0.13, green: 0.13, blue: 0.16, alpha: 1),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(capGradient, start: CGPoint(x: 0, y: cap.maxY), end: CGPoint(x: 0, y: cap.minY), options: [])
-    ctx.restoreGState()
-
-    // Pointer at the end of the lit arc.
-    let pointerAngle = (225 - 270 * 0.62) * CGFloat.pi / 180
-    ctx.setStrokeColor(CGColor(red: 1.0, green: 0.62, blue: 0.18, alpha: 1))
-    ctx.setLineWidth(26 * s)
-    ctx.setLineCap(.round)
-    ctx.move(to: CGPoint(x: center.x + cos(pointerAngle) * 70 * s, y: center.y + sin(pointerAngle) * 70 * s))
-    ctx.addLine(to: CGPoint(x: center.x + cos(pointerAngle) * 160 * s, y: center.y + sin(pointerAngle) * 160 * s))
-    ctx.strokePath()
+    // Knob in outline: grip ring, cap, and the indicator dot.
+    ring(252, 16, 1)
+    if size >= 64 { ring(204, 8, 0.5) }
+    let pointer = (225 - 270 * level) * CGFloat.pi / 180
+    let dot = point(pointer, 138)
+    let dotRadius = max(1.2, 24 * s)
+    ctx.setFillColor(ink(1))
+    ctx.fillEllipse(in: CGRect(x: dot.x - dotRadius, y: dot.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
 
     NSGraphicsContext.restoreGraphicsState()
     return rep

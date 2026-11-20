@@ -55,18 +55,11 @@ struct ActionEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Action", selection: kind) {
-                ForEach(Self.groups, id: \.0) { group in
-                    Section(group.0) {
-                        ForEach(group.1.filter { allowMacro || $0 != .macro }, id: \.self) { k in
-                            Text(k.title).tag(k)
-                        }
-                    }
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
+        VStack(alignment: .leading, spacing: 10) {
+            KKPicker(selection: kind, groups: Self.groups.map { group in
+                (title: Optional(group.0),
+                 options: group.1.filter { allowMacro || $0 != .macro }.map { (value: $0, title: $0.title) })
+            })
             fields
         }
     }
@@ -78,93 +71,72 @@ struct ActionEditor: View {
         case .none:
             hint("Swallows the event so nothing happens.")
         case .volume:
-            HStack {
-                Text("Step")
-                TextField("", value: $action.amount, format: .number.precision(.fractionLength(0...1)))
-                    .frame(width: 60)
-                    .multilineTextAlignment(.trailing)
-                Stepper("", value: $action.amount, in: -25...25, step: 0.5).labelsHidden()
-                Text("% of full volume per detent").foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text("Step").foregroundStyle(Theme.ink2)
+                NumberField(value: $action.amount, range: -25...25, step: 0.5, decimals: 1)
+                Text("% of full volume per detent").foregroundStyle(Theme.ink2)
             }
         case .muteToggle, .modeNext, .modePrevious:
             EmptyView()
         case .monitorLevel:
-            HStack {
-                Text("Step")
-                TextField("", value: $action.amount, format: .number.precision(.fractionLength(0...1)))
-                    .frame(width: 60)
-                    .multilineTextAlignment(.trailing)
-                Stepper("", value: $action.amount, in: -12...12, step: 0.5).labelsHidden()
-                Text("dB per detent (0.5 dB resolution)").foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text("Step").foregroundStyle(Theme.ink2)
+                NumberField(value: $action.amount, range: -12...12, step: 0.5, decimals: 1)
+                Text("dB per detent (0.5 dB resolution)").foregroundStyle(Theme.ink2)
             }
             Toggle("Use the Mac's own volume when the current output has one", isOn: $action.auto)
             hint("Sets the monitor level of a Universal Audio Apollo through the UA mixer on this Mac. It never raises the level above the ceiling set under General.")
         case .monitorToggle:
-            HStack {
-                Picker("Switch", selection: $action.monitorSwitch) {
-                    ForEach(MonitorSwitch.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .fixedSize()
+            HStack(spacing: 14) {
+                Segmented(selection: $action.monitorSwitch,
+                          options: MonitorSwitch.allCases.map { (value: $0, title: $0.title) })
                 if action.monitorSwitch == .mute {
                     Toggle("Use the Mac's own mute when the current output has one", isOn: $action.auto)
                 }
             }
             hint("Toggles mute, dim or mono on the Apollo's monitor output.")
         case .mediaKey:
-            HStack {
-                Picker("Key", selection: $action.mediaKey) {
-                    ForEach(MediaKey.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
+            HStack(spacing: 14) {
+                KKPicker(selection: $action.mediaKey, options: MediaKey.allCases.map { (value: $0, title: $0.title) })
                 Toggle("Fine (quarter step)", isOn: $action.fine)
-                Stepper("×\(action.count)", value: $action.count, in: 1...10)
+                KKStepper("×\(action.count)", value: $action.count, in: 1...10)
             }
         case .keystroke:
-            HStack {
+            HStack(spacing: 14) {
                 KeyComboEditor(combo: $action.key)
-                Stepper("×\(action.count)", value: $action.count, in: 1...20)
+                KKStepper("×\(action.count)", value: $action.count, in: 1...20)
             }
         case .stickyKeystroke:
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Keep held")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("Keep held").foregroundStyle(Theme.ink2)
                     ModifierToggles(modifiers: $action.hold)
-                    Text("then tap").foregroundStyle(.secondary)
+                    Text("then tap").foregroundStyle(Theme.ink2)
                 }
                 KeyComboEditor(combo: $action.key)
-                HStack {
-                    Text("Release after")
-                    Slider(value: $action.releaseAfter, in: 0.2...3, step: 0.1).frame(width: 160)
-                    Text(String(format: "%.1f s of no turning", action.releaseAfter)).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text("Release after").foregroundStyle(Theme.ink2)
+                    KKSlider(value: $action.releaseAfter, in: 0.2...3, step: 0.1).frame(width: 170)
+                    Text(String(format: "%.1f s of no turning", action.releaseAfter))
+                        .font(.kkMono).foregroundStyle(Theme.ink2)
                 }
                 hint("For switchers that commit when the modifier is released, such as ⌘⇥ or ⌃⇥.")
             }
         case .typeText:
             TextField("Text to type", text: $action.text)
         case .scroll:
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Down")
-                    TextField("", value: $action.dy, format: .number.precision(.fractionLength(0)))
-                        .frame(width: 56).multilineTextAlignment(.trailing)
-                    Stepper("", value: $action.dy, in: -2000...2000, step: 10).labelsHidden()
-                    Text("Right").padding(.leading, 8)
-                    TextField("", value: $action.dx, format: .number.precision(.fractionLength(0)))
-                        .frame(width: 56).multilineTextAlignment(.trailing)
-                    Stepper("", value: $action.dx, in: -2000...2000, step: 10).labelsHidden()
-                    Picker("", selection: $action.unit) {
-                        Text("pixels").tag(ScrollUnit.pixel)
-                        Text("lines").tag(ScrollUnit.line)
-                    }
-                    .labelsHidden()
-                    .fixedSize()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("Down").foregroundStyle(Theme.ink2)
+                    NumberField(value: $action.dy, range: -2000...2000, step: 10, width: 54)
+                    Text("Right").foregroundStyle(Theme.ink2).padding(.leading, 6)
+                    NumberField(value: $action.dx, range: -2000...2000, step: 10, width: 54)
+                    Segmented(selection: $action.unit,
+                              options: [(value: ScrollUnit.pixel, title: "pixels"), (value: ScrollUnit.line, title: "lines")])
                 }
-                HStack {
+                HStack(spacing: 10) {
                     Toggle("Smooth", isOn: $action.smooth).disabled(action.unit == .line)
-                    Text("With").padding(.leading, 8)
+                    Text("With").foregroundStyle(Theme.ink2).padding(.leading, 8)
                     ModifierToggles(modifiers: $action.hold)
                 }
                 hint("Negative values scroll up or left. Scrolling goes to whatever is under the pointer.")
@@ -179,7 +151,7 @@ struct ActionEditor: View {
         case .shortcut:
             ShortcutField(name: $action.text)
         case .open:
-            HStack {
+            HStack(spacing: 8) {
                 TextField("URL, file path or bundle id", text: $action.text)
                 Button("Choose app…") {
                     if let picked = AppChooser.pick() { action.text = picked.bundleID }
@@ -189,11 +161,9 @@ struct ActionEditor: View {
             if modeNames.isEmpty {
                 TextField("Mode name", text: $action.text)
             } else {
-                Picker("Mode", selection: $action.text) {
-                    ForEach(modeNames, id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden()
-                .fixedSize()
+                KKPicker(selection: $action.text,
+                         options: (modeNames.contains(action.text) ? modeNames : [action.text] + modeNames)
+                             .map { (value: $0, title: $0.isEmpty ? "Choose a mode" : $0) })
             }
         case .macro:
             MacroEditor(steps: $action.steps, modeNames: modeNames, targetBundleIDs: targetBundleIDs)
@@ -201,7 +171,7 @@ struct ActionEditor: View {
     }
 
     private func hint(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Note(text).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -215,39 +185,30 @@ private struct ScriptField: View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $text)
                 .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Theme.ink)
                 .frame(minHeight: 54, maxHeight: 120)
                 .scrollContentBackground(.hidden)
                 .padding(4)
             if text.isEmpty {
                 Text(placeholder)
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.ink3)
                     .padding(.horizontal, 9).padding(.vertical, 4)
                     .allowsHitTesting(false)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.raised.opacity(0.6)))
+        .kkOutline(Theme.lineStrong)
     }
 }
 
 // MARK: - Menu item picker
 
-private struct MenuNodeView: View {
-    let node: AX.MenuNode
-    let path: [String]
-    let pick: ([String]) -> Void
-
-    var body: some View {
-        if node.children.isEmpty {
-            Button(node.title) { pick(path + [node.title]) }
-        } else {
-            Menu(node.title) {
-                ForEach(node.children) { child in
-                    MenuNodeView(node: child, path: path + [node.title], pick: pick)
-                }
-            }
-        }
+private func menuItems(_ nodes: [AX.MenuNode], path: [String], pick: @escaping ([String]) -> Void) -> [KKMenuItem] {
+    nodes.map { node in
+        node.children.isEmpty
+            ? .action(node.title) { pick(path + [node.title]) }
+            : .submenu(node.title, menuItems(node.children, path: path + [node.title], pick: pick))
     }
 }
 
@@ -261,21 +222,17 @@ private struct MenuItemField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(spacing: 8) {
                 TextField("View > Zoom In", text: $text)
                 if tree.isEmpty {
                     Button(loading ? "Reading…" : "Read menus") { load() }.disabled(loading)
                 } else {
-                    Menu("Pick") {
-                        ForEach(tree) { node in
-                            MenuNodeView(node: node, path: []) { text = $0.joined(separator: " > ") }
-                        }
-                    }
-                    .fixedSize()
+                    KKMenu("Pick", items: {
+                        menuItems(tree, path: []) { text = $0.joined(separator: " > ") }
+                    })
                 }
             }
-            Text(status.isEmpty ? "Clicks a menu bar item by name, even ones without a shortcut. Separate levels with >." : status)
-                .font(.caption).foregroundStyle(.secondary)
+            Note(status.isEmpty ? "Clicks a menu bar item by name, even ones without a shortcut. Separate levels with >." : status)
         }
     }
 
@@ -312,13 +269,13 @@ private struct ShortcutField: View {
     @State private var available: [String] = []
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             TextField("Shortcut name", text: $name)
-            Menu("Pick") {
-                if available.isEmpty { Text("No shortcuts found") }
-                ForEach(available, id: \.self) { s in Button(s) { name = s } }
-            }
-            .fixedSize()
+            KKMenu("Pick", items: {
+                available.isEmpty
+                    ? [.action("No shortcuts found", enabled: false) {}]
+                    : available.map { s in .action(s, checked: s == name) { name = s } }
+            })
         }
         .onAppear(perform: load)
     }
@@ -351,31 +308,33 @@ private struct MacroEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach($steps) { $step in
-                HStack(alignment: .top, spacing: 8) {
-                    Text("\((steps.firstIndex(where: { $0.id == step.id }) ?? 0) + 1).")
-                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 18, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 10) {
+                    Text(String(format: "%02d", (steps.firstIndex(where: { $0.id == step.id }) ?? 0) + 1))
+                        .font(.kkMono).foregroundStyle(Theme.ink2).frame(width: 20, alignment: .trailing)
+                        .padding(.top, 6)
+                    VStack(alignment: .leading, spacing: 10) {
                         ActionEditor(action: $step.action, modeNames: modeNames, targetBundleIDs: targetBundleIDs, allowMacro: false)
-                        Stepper("Wait \(step.delayMs) ms before this step", value: $step.delayMs, in: 0...5000, step: 50)
-                            .font(.caption)
+                        KKStepper("Wait \(step.delayMs) ms before this step", value: $step.delayMs, in: 0...5000, step: 50)
+                            .foregroundStyle(Theme.ink2)
                     }
                     Spacer(minLength: 0)
                     Button {
                         steps.removeAll { $0.id == step.id }
                     } label: {
-                        Image(systemName: "minus.circle")
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .medium))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.kkIcon)
+                    .help("Remove this step")
                 }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04)))
+                .padding(10)
+                .kkOutline(Theme.line)
             }
             Button {
                 steps.append(MacroStep(.key(Key.space)))
             } label: {
                 Label("Add step", systemImage: "plus")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(KKButtonStyle(kind: .ghost))
         }
     }
 }

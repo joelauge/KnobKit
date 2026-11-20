@@ -2,7 +2,7 @@ import AppKit
 import KnobCore
 import SwiftUI
 
-/// The menu bar popover: what the knob does right now, mode switching, and shortcuts
+/// The menu bar panel: what the knob does right now, mode switching, and shortcuts
 /// into the configurator.
 struct PopoverView: View {
     @EnvironmentObject private var state: AppState
@@ -13,59 +13,107 @@ struct PopoverView: View {
         !state.axTrusted || (state.config.settings.deviceMode == .selected && !state.hidListening)
     }
 
+    private var enabled: Bool { state.config.settings.enabled }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             header
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
+            Rule()
             if needsPermissions {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Finish setup").font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 10) {
+                    Eyebrow("Finish setup", color: Theme.warn)
                     PermissionsCard(compact: true)
                 }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+                .padding(16)
+                Rule()
             }
-            contextRow
-            modeChips
-            Divider()
-            cheatSheet
-            Divider()
+            Group {
+                dial
+                    .padding(.horizontal, 16).padding(.vertical, 14)
+                Rule()
+                modeChips
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                Rule()
+                cheatSheet
+            }
+            .opacity(enabled ? 1 : 0.35)
+            Rule()
             footer
+                .padding(.horizontal, 12).padding(.vertical, 10)
         }
-        .padding(14)
         .frame(width: 340)
+        .background(Theme.bg)
+        .kkRoot()
     }
 
     private var header: some View {
-        HStack {
-            Image(nsImage: KnobIcon.image(modeIndex: state.context.modeOwnerIndex,
-                                          modeCount: state.context.modeOwner.modes.count, pointSize: 22))
-                .renderingMode(.template)
-                .foregroundStyle(.tint)
-            Text("KnobKit").font(.headline)
+        HStack(spacing: 8) {
+            Text("KNOBKIT").font(.kkDisplay(13)).tracking(1.6)
+            Eyebrow("F75", color: Theme.ink3)
             Spacer()
-            Toggle("", isOn: $state.config.settings.enabled)
-                .toggleStyle(.switch).controlSize(.small).labelsHidden()
-                .help("Turn knob remapping on or off")
+            Toggle(isOn: $state.config.settings.enabled) {
+                Eyebrow(enabled ? "On" : "Off")
+            }
+            .toggleStyle(KKSwitchStyle())
+            .help("Turn knob remapping on or off")
+        }
+    }
+
+    // MARK: Dial and context
+
+    private var dial: some View {
+        let owner = state.context.modeOwner
+        let index = state.context.modeOwnerIndex
+        let count = owner.modes.count
+        let mode = state.context.displayMode
+        return HStack(alignment: .center, spacing: 14) {
+            DialView(position: DialView.position(index: index, count: count),
+                     majorTicks: count, activeTick: index, size: 86)
+                .contentShape(Circle())
+                .onTapGesture {
+                    guard count > 1 else { return }
+                    state.setMode(profileID: owner.id, index: (index + 1) % count)
+                }
+                .help("Click for the next mode")
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Eyebrow("Mode")
+                    Leader()
+                    Text(String(format: "%02d / %02d", min(index + 1, max(count, 1)), max(count, 1)))
+                        .font(.kkMono).foregroundStyle(Theme.ink2)
+                }
+                Text((mode?.name ?? "No mode").uppercased())
+                    .font(.kkDisplay(21))
+                    .tracking(0.4)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Rule()
+                contextRow
+            }
         }
     }
 
     private var contextRow: some View {
         HStack(spacing: 8) {
-            AppIcon(bundleID: state.frontApp.bundleID, size: 26)
+            AppIcon(bundleID: state.frontApp.bundleID, size: 22)
             VStack(alignment: .leading, spacing: 1) {
-                Text(state.frontApp.name.isEmpty ? "No app" : state.frontApp.name).fontWeight(.medium).lineLimit(1)
+                Text(state.frontApp.name.isEmpty ? "No app" : state.frontApp.name)
+                    .font(.system(size: 12.5, weight: .medium)).lineLimit(1)
                 Text(state.context.app.map { "Profile: \($0.name)" } ?? "Global profile")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(Theme.ink2).lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: 4)
             if let profile = state.context.app {
-                Button("Edit") { openConfigurator(.profile(profile.id)) }.controlSize(.small)
+                Button("Edit") { openConfigurator(.profile(profile.id)) }.buttonStyle(.kkSmall).fixedSize()
             } else if let id = state.frontApp.bundleID {
                 Button("Add profile") {
                     let new = state.addProfile(name: state.frontApp.name, bundleIDs: [id])
                     openConfigurator(.profile(new))
                 }
-                .controlSize(.small)
+                .buttonStyle(.kkSmall)
+                .fixedSize()
             }
         }
     }
@@ -73,23 +121,21 @@ struct PopoverView: View {
     private var modeChips: some View {
         let owner = state.context.modeOwner
         let live = state.context.modeOwnerIndex
-        return FlowLayout(spacing: 5) {
+        return FlowLayout(spacing: 6) {
             ForEach(Array(owner.modes.enumerated()), id: \.element.id) { index, mode in
-                Button {
+                Chip(selected: index == live) {
                     state.setMode(profileID: owner.id, index: index)
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: mode.symbol).font(.system(size: 11))
-                        Text(mode.name).font(.callout)
+                        Image(systemName: mode.symbol).font(.system(size: 10.5, weight: .light))
+                        Text(mode.name)
                     }
-                    .padding(.horizontal, 9).padding(.vertical, 5)
-                    .background(Capsule().fill(index == live ? Color.accentColor : Color.primary.opacity(0.08)))
-                    .foregroundStyle(index == live ? Color.white : Color.primary)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
+
+    // MARK: What the knob does
 
     private struct CheatRow: Identifiable {
         var id: String
@@ -123,8 +169,8 @@ struct PopoverView: View {
             }
             pair(.rotateCCW, .rotateCW, "Turn")
             single(.press, "Press")
-            single(.doublePress, "Double press")
-            single(.triplePress, "Triple press")
+            single(.doublePress, "Double")
+            single(.triplePress, "Triple")
             single(.longPress, "Long press")
             pair(.pressRotateCCW, .pressRotateCW, "Hold + turn")
         }
@@ -133,37 +179,46 @@ struct PopoverView: View {
 
     private var cheatSheet: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(cheatRows) { row in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(row.modifiers.symbols)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .frame(width: 30, alignment: .trailing)
-                        Text(row.gesture)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 82, alignment: .leading)
-                        Text(row.text).lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 0)
+                    HStack(alignment: .center, spacing: 8) {
+                        HStack(spacing: 5) {
+                            if !row.modifiers.isEmpty {
+                                Text(row.modifiers.symbols).font(.system(size: 11.5, weight: .semibold))
+                            }
+                            Eyebrow(row.gesture, color: row.modifiers.isEmpty ? Theme.ink : Theme.ink2)
+                        }
+                        .fixedSize()
+                        Leader()
+                        Text(row.text)
+                            .font(.system(size: 12))
+                            .lineLimit(1).truncationMode(.middle)
+                            .layoutPriority(1)
                         if row.fromApp {
-                            Circle().fill(Color.accentColor).frame(width: 5, height: 5)
+                            Rectangle().fill(Theme.ink).frame(width: 5, height: 5)
                                 .help("Set by this app's profile")
                         }
                     }
-                    .font(.callout)
+                    .frame(height: 23)
+                }
+                if cheatRows.isEmpty {
+                    Note("Nothing is bound here. The knob changes the volume.")
+                        .frame(height: 23)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16).padding(.vertical, 9)
         }
         .frame(maxHeight: 250)
     }
 
     private var footer: some View {
-        HStack {
-            Button("Configure…") { openConfigurator(nil) }
+        HStack(spacing: 4) {
+            Button("Configure") { openConfigurator(nil) }
             Button("Monitor") { openConfigurator(.monitor) }
             Spacer()
             Button("Quit", action: quit)
         }
-        .controlSize(.small)
+        .buttonStyle(.kkGhost)
     }
 }

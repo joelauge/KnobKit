@@ -26,6 +26,37 @@ extension Binding where Value == Mode {
     }
 }
 
+// MARK: - What an unset gesture falls back to
+
+/// What a gesture does when the mode being edited leaves it unset.
+private struct Inherited {
+    var name: String
+    var from: String?
+
+    var text: String { from.map { "\(name)  ·  from \($0)" } ?? name }
+
+    static func lookup(_ gesture: KnobGesture, layer: ModifierSet, profile: Profile,
+                       isAlways: Bool, isGlobal: Bool, state: AppState) -> Inherited {
+        var chain: [(Mode, String)] = []
+        if !isAlways { chain.append((profile.always, "Always")) }
+        if !isGlobal, profile.inheritsGlobal {
+            let global = state.config.global
+            let index = min(state.modeIndex[global.id] ?? 0, max(global.modes.count - 1, 0))
+            if global.modes.indices.contains(index) { chain.append((global.modes[index], "Global · \(global.modes[index].name)")) }
+            chain.append((global.always, "Global · Always"))
+        }
+        for (mode, name) in chain {
+            if let b = mode.binding(gesture, layer, speed: .any) { return Inherited(name: b.displayName, from: name) }
+        }
+        switch gesture {
+        case .rotateCW, .rotateCCW: return Inherited(name: "System volume")
+        case .press: return Inherited(name: "System mute")
+        case .pressRotateCW, .pressRotateCCW: return Inherited(name: "Same as a plain turn")
+        default: return Inherited(name: "Not set")
+        }
+    }
+}
+
 // MARK: - Profile editor
 
 struct ProfileEditor: View {
@@ -45,10 +76,45 @@ struct ProfileEditor: View {
             })
     }
 
+    /// The mode being edited, or the always-on layer.
+    private var currentMode: Mode {
+        selectedMode.flatMap { id in profile.modes.first { $0.id == id } } ?? profile.always
+    }
+
+    private var isAlways: Bool { selectedMode == nil || !profile.modes.contains { $0.id == selectedMode } }
+
+    /// The drawing's labels: what the knob does in this mode and layer, inherited
+    /// bindings included.
+    private var callouts: [Callout] {
+        let mode = currentMode
+        let prefix = layer.isEmpty ? "" : layer.symbols + " "
+        func resolve(_ gesture: KnobGesture) -> (name: String, own: Bool) {
+            if let b = mode.binding(gesture, layer, speed: .any) { return (b.displayName, true) }
+            let fallback = Inherited.lookup(gesture, layer: layer, profile: profile, isAlways: isAlways,
+                                            isGlobal: isGlobal, state: state)
+            return (fallback.name, false)
+        }
+        let left = resolve(.rotateCCW), right = resolve(.rotateCW)
+        var out = [Callout(label: prefix + "Turn",
+                           value: left.name == right.name ? left.name : "\(left.name)  ↔  \(right.name)",
+                           own: left.own || right.own)]
+        for (gesture, name) in [(KnobGesture.press, "Press"), (.doublePress, "Double"), (.triplePress, "Triple")] {
+            let r = resolve(gesture)
+            out.append(Callout(label: prefix + name, value: r.name, own: r.own))
+        }
+        return out
+    }
+
+    private var remappedKeys: Set<Int> {
+        Set((currentMode.keys + profile.always.keys).map { $0.key.keyCode })
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 22) {
                 ProfileHeader(profile: $profile, isGlobal: isGlobal)
+                KnobHero(callouts: callouts, highlighted: remappedKeys)
+                    .padding(.vertical, 4)
                 ModeBar(profile: $profile, selected: $selectedMode, isGlobal: isGlobal)
                 if let id = selectedMode, let mode = modeBinding(id) {
                     ModeEditor(mode: mode, profile: $profile, isGlobal: isGlobal, isAlways: false, layer: $layer, selected: $selectedMode)
@@ -56,8 +122,10 @@ struct ProfileEditor: View {
                     ModeEditor(mode: $profile.always, profile: $profile, isGlobal: isGlobal, isAlways: true, layer: $layer, selected: $selectedMode)
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 860, alignment: .leading)
+            .padding(.horizontal, 30)
+            .padding(.top, 38)
+            .padding(.bottom, 30)
+            .frame(maxWidth: 900, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
@@ -80,44 +148,44 @@ private struct ProfileHeader: View {
     @State private var confirmDelete = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 14) {
                 if isGlobal {
-                    Image(systemName: "globe").font(.system(size: 26)).foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Global").font(.title2.bold())
+                    Image(systemName: "globe").font(.system(size: 30, weight: .ultraLight))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Global").font(.kkDisplay(23))
                         Text("Applies everywhere. App profiles layer on top of this.")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.ink2)
                     }
                 } else {
                     AppIcon(bundleID: profile.bundleIDs.first, size: 34)
                     TextField("Profile name", text: $profile.name)
                         .textFieldStyle(.plain)
-                        .font(.title2.bold())
+                        .font(.kkDisplay(23))
                     Spacer()
-                    Toggle("Enabled", isOn: $profile.enabled).toggleStyle(.switch).controlSize(.small)
-                    Menu {
-                        Button("Duplicate") {
+                    Toggle("Enabled", isOn: $profile.enabled).toggleStyle(KKSwitchStyle())
+                    KKMenu(kind: .icon, small: true, items: {
+                        [.action("Duplicate") {
                             var copy = profile
                             copy.id = UUID()
                             copy.name += " copy"
                             state.config.profiles.append(copy)
                             state.selection = .profile(copy.id)
-                        }
-                        Button("Delete profile…", role: .destructive) { confirmDelete = true }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                        },
+                         .separator,
+                         .action("Delete profile…", destructive: true) { confirmDelete = true }]
+                    }) {
+                        Image(systemName: "ellipsis").font(.system(size: 12, weight: .medium))
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                    .help("More")
                 }
             }
             if !isGlobal {
-                Card {
+                Card(title: "Applies to") {
                     appsRow
-                    Divider()
+                    Rule()
                     Toggle("Use Global for anything this profile does not set", isOn: $profile.inheritsGlobal)
-                    HStack {
+                    HStack(spacing: 10) {
                         Text("Only when the window title contains")
                         TextField("optional, e.g. Color", text: $profile.titleContains).frame(maxWidth: 220)
                     }
@@ -131,48 +199,45 @@ private struct ProfileHeader: View {
     }
 
     private var appsRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Applies to").font(.subheadline).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
             FlowLayout(spacing: 6) {
                 ForEach(profile.bundleIDs, id: \.self) { id in
-                    HStack(spacing: 5) {
-                        AppIcon(bundleID: id, size: 16)
-                        Text(AppInfo.name(for: id)).lineLimit(1)
+                    HStack(spacing: 6) {
+                        AppIcon(bundleID: id, size: 15)
+                        Text(AppInfo.name(for: id)).font(.system(size: 12)).lineLimit(1)
                         Button {
                             profile.bundleIDs.removeAll { $0 == id }
                         } label: {
-                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                            Image(systemName: "xmark").font(.system(size: 7.5, weight: .bold))
+                                .frame(width: 14, height: 14).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.ink2)
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Capsule().fill(Color.primary.opacity(0.07)))
+                    .padding(.leading, 8).padding(.trailing, 4)
+                    .frame(height: 26)
+                    .kkOutline(Theme.lineStrong)
                     .help(id)
                 }
-                Menu {
-                    Section("Running now") {
-                        ForEach(AppChooser.running().filter { !profile.bundleIDs.contains($0.bundleID) }, id: \.bundleID) { app in
-                            Button(app.name) { profile.bundleIDs.append(app.bundleID) }
-                        }
+                KKMenu("Add app", systemImage: "plus", kind: .ghost, small: true, items: {
+                    var out: [KKMenuItem] = [.header("Running now")]
+                    for app in AppChooser.running() where !profile.bundleIDs.contains(app.bundleID) {
+                        out.append(.action(app.name) { profile.bundleIDs.append(app.bundleID) })
                     }
-                    Button("Choose application…") {
+                    out.append(.separator)
+                    out.append(.action("Choose application…") {
                         if let picked = AppChooser.pick(), !profile.bundleIDs.contains(picked.bundleID) {
                             profile.bundleIDs.append(picked.bundleID)
                         }
-                    }
-                } label: {
-                    Label("Add app", systemImage: "plus")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+                    })
+                    return out
+                })
             }
-            HStack {
+            HStack(spacing: 8) {
                 TextField("or a bundle id, * matches a prefix (com.adobe.PremierePro*)", text: $manualID)
                     .onSubmit(addManual)
                 Button("Add", action: addManual).disabled(manualID.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .font(.callout)
         }
     }
 
@@ -229,11 +294,13 @@ private struct ModeBar: View {
     private var liveIndex: Int { state.modeIndex[profile.id] ?? 0 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Modes").font(.headline)
-                Text("The knob cycles through these. “Always” applies in every mode.")
-                    .font(.callout).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Eyebrow("Modes", color: Theme.ink)
+                Leader()
+                Note("The knob cycles through these. “Always” applies in every mode.")
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
             FlowLayout(spacing: 6) {
                 chip(title: "Always", symbol: "infinity", isSelected: selected == nil, isLive: false) { selected = nil }
@@ -255,27 +322,24 @@ private struct ModeBar: View {
                     profile.modes.append(mode)
                     selected = mode.id
                 } label: {
-                    Label("Add mode", systemImage: "plus").padding(.horizontal, 6).padding(.vertical, 3)
+                    Label("Add mode", systemImage: "plus")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(KKButtonStyle(kind: .ghost))
             }
         }
     }
 
     private func chip(title: String, symbol: String, isSelected: Bool, isLive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Chip(selected: isSelected, action: action) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 12))
+                Image(systemName: symbol).font(.system(size: 11, weight: .light))
                 Text(title)
                 if isLive {
-                    Circle().fill(Color.green).frame(width: 6, height: 6).help("Active right now")
+                    Rectangle().fill(isSelected ? Theme.bg : Theme.ink).frame(width: 5, height: 5)
+                        .help("Active right now")
                 }
             }
-            .padding(.horizontal, 11).padding(.vertical, 6)
-            .background(Capsule().fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07)))
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
         }
-        .buttonStyle(.plain)
     }
 
     private func move(_ index: Int, by delta: Int) {
@@ -323,32 +387,14 @@ private struct ModeEditor: View {
         Array(Set(mode.knob.map(\.modifiers))).sorted { $0.rawValue < $1.rawValue }
     }
 
-    /// What happens for a gesture this mode leaves unset.
     private func fallback(_ gesture: KnobGesture) -> String {
-        var chain: [(Mode, String)] = []
-        if !isAlways { chain.append((profile.always, "Always")) }
-        if !isGlobal, profile.inheritsGlobal {
-            let global = state.config.global
-            let index = min(state.modeIndex[global.id] ?? 0, max(global.modes.count - 1, 0))
-            if global.modes.indices.contains(index) { chain.append((global.modes[index], "Global · \(global.modes[index].name)")) }
-            chain.append((global.always, "Global · Always"))
-        }
-        for (m, name) in chain {
-            if let b = m.binding(gesture, layer, speed: .any) { return "\(b.displayName)  ·  from \(name)" }
-        }
-        switch gesture {
-        case .rotateCW, .rotateCCW: return "System volume"
-        case .press: return "System mute"
-        case .pressRotateCW, .pressRotateCCW: return "Same as a plain turn"
-        default: return "Not set"
-        }
+        Inherited.lookup(gesture, layer: layer, profile: profile, isAlways: isAlways, isGlobal: isGlobal, state: state).text
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 18) {
             if isAlways {
-                Text("Bindings here work in every mode of this profile. A mode's own binding for the same gesture wins.")
-                    .font(.callout).foregroundStyle(.secondary)
+                Note("Bindings here work in every mode of this profile. A mode's own binding for the same gesture wins.")
             } else {
                 HStack(spacing: 8) {
                     SymbolPicker(symbol: $mode.symbol)
@@ -361,64 +407,59 @@ private struct ModeEditor: View {
                 }
             }
 
-            Card {
-                HStack(spacing: 10) {
-                    Text("Layer").font(.headline)
+            Card(title: "Layer", accessory: usedLayers.count > 1 ? AnyView(layerJumps) : nil) {
+                HStack(spacing: 12) {
                     ModifierToggles(modifiers: $layer)
-                    Text(layer.isEmpty ? "knob on its own" : "while holding \(layer.symbols) on the keyboard")
-                        .foregroundStyle(.secondary)
+                    Text(layer.isEmpty ? "The knob on its own" : "While holding \(layer.symbols) on the keyboard")
+                        .foregroundStyle(Theme.ink2)
                     Spacer()
-                    ForEach(usedLayers, id: \.rawValue) { used in
-                        Button(used.isEmpty ? "none" : used.symbols) { layer = used }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .tint(used == layer ? .accentColor : nil)
-                            .help("Jump to a layer that has bindings")
-                    }
                 }
             }
 
-            section("Turn", presetTarget: false, gestures: [.rotateCW, .rotateCCW])
-            section("Press", presetTarget: nil, gestures: [.press, .doublePress, .triplePress])
-            section("Hold gestures", presetTarget: true, gestures: [.longPress, .pressRotateCW, .pressRotateCCW],
+            section("Turn", gestures: [.rotateCW, .rotateCCW], presetTarget: false)
+            section("Press", gestures: [.press, .doublePress, .triplePress], presetTarget: nil)
+            section("Hold gestures", gestures: [.longPress, .pressRotateCW, .pressRotateCCW], presetTarget: true,
                     note: "Not available on the F75: it sends a knob press as an instant tap however long it is held, so it cannot signal a long press or a hold-and-turn. These only work with a controller that reports the knob being held down.")
 
             KeysEditor(mode: $mode, modeNames: modeNames, targetBundleIDs: isGlobal ? [] : profile.bundleIDs)
         }
     }
 
+    /// Shortcuts to the layers that already have bindings.
+    private var layerJumps: some View {
+        HStack(spacing: 4) {
+            ForEach(usedLayers, id: \.rawValue) { used in
+                Button(used.isEmpty ? "none" : used.symbols) { layer = used }
+                    .buttonStyle(KKButtonStyle(kind: used == layer ? .solid : .outline, small: true))
+                    .help("Jump to a layer that has bindings")
+            }
+        }
+    }
+
     /// `presetTarget`: false = presets apply to plain turns, true = to hold-and-turn, nil = no presets.
-    private func section(_ title: String, presetTarget: Bool?, gestures: [KnobGesture], note: String? = nil) -> some View {
-        Card {
-            HStack {
-                Text(title).font(.headline)
-                if note != nil {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                }
-                Spacer()
-                if let pressRotate = presetTarget {
-                    Menu("Presets") {
-                        ForEach(Presets.turnGroups, id: \.0) { group in
-                            Section(group.0) {
-                                ForEach(group.1) { preset in
-                                    Button(preset.name) { apply(preset, pressRotate: pressRotate) }
-                                }
-                            }
-                        }
-                    }
-                    .fixedSize()
-                    .help("Sets both directions at once for this layer")
-                }
-            }
-            if let note {
-                Text(note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+    private func section(_ title: String, gestures: [KnobGesture], presetTarget: Bool?, note: String? = nil) -> some View {
+        Card(title: title, warning: note != nil, accessory: presetTarget.map { AnyView(presets(pressRotate: $0)) }) {
+            if let note { Note(note) }
             ForEach(Array(gestures.enumerated()), id: \.element) { i, gesture in
-                if i > 0 { Divider() }
+                if i > 0 || note != nil { Rule() }
                 GestureRow(mode: $mode, gesture: gesture, layer: layer, fallback: fallback(gesture),
                            modeNames: modeNames, targetBundleIDs: isGlobal ? [] : profile.bundleIDs)
             }
         }
+    }
+
+    private func presets(pressRotate: Bool) -> some View {
+        KKMenu("Presets", small: true, items: {
+            var out: [KKMenuItem] = []
+            for group in Presets.turnGroups {
+                out.append(.header(group.0))
+                for preset in group.1 {
+                    out.append(.action(preset.name) { apply(preset, pressRotate: pressRotate) })
+                }
+            }
+            return out
+        })
+        .help("Sets both directions at once for this layer")
     }
 
     private func apply(_ preset: TurnPreset, pressRotate: Bool) {
@@ -448,38 +489,39 @@ private struct GestureRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Image(systemName: gesture.symbol).frame(width: 22).foregroundStyle(.tint)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: gesture.symbol).font(.system(size: 14, weight: .light))
+                    .frame(width: 20).foregroundStyle(Theme.ink2)
                 Text(layer.symbols.isEmpty ? gesture.title : "\(layer.symbols) \(gesture.title)")
-                    .frame(width: 170, alignment: .leading)
+                    .frame(width: 150, alignment: .leading)
                 if let current {
-                    Text(current.displayName).fontWeight(.medium).lineLimit(1)
+                    Text(current.displayName).fontWeight(.semibold).lineLimit(1)
                     if current.label.isEmpty == false, current.label != current.action.summary {
-                        Text(current.action.summary).foregroundStyle(.secondary).lineLimit(1)
+                        Text(current.action.summary).foregroundStyle(Theme.ink2).lineLimit(1)
                     }
                     if fast != nil {
-                        Text("+ fast").font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.orange.opacity(0.2)))
+                        Eyebrow("+ fast").padding(.horizontal, 6).frame(height: 18).kkOutline(Theme.lineStrong)
                     }
                     Spacer()
                     Button {
                         expanded.toggle()
                     } label: {
                         Image(systemName: expanded ? "chevron.up" : "slider.horizontal.3")
+                            .font(.system(size: 12, weight: .regular))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.kkIcon)
                     .help("Edit")
                     Button {
                         mode.knob.removeAll { $0.gesture == gesture && $0.modifiers == layer }
                         expanded = false
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .medium))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.kkIcon)
                     .help("Clear this binding")
                 } else {
-                    Text(fallback).foregroundStyle(.secondary).lineLimit(1)
+                    Text(fallback).foregroundStyle(Theme.ink3).lineLimit(1)
                     Spacer()
                     Button("Set") {
                         let starter: Action = gesture.isRotation
@@ -488,30 +530,33 @@ private struct GestureRow: View {
                         mode.knob.append(KnobBinding(gesture, layer, starter))
                         expanded = true
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.kkSmall)
                 }
             }
+            .frame(minHeight: 24)
             if expanded, let current, let binding = $mode.knobBinding(current.id) {
                 detail(binding)
+                    .padding(.leading, 16)
+                    .overlay(alignment: .leading) { VRule(color: Theme.lineStrong) }
                     .padding(.leading, 32)
+                    .padding(.bottom, 4)
             }
         }
-        .padding(.vertical, 2)
     }
 
     @ViewBuilder private func detail(_ binding: Binding<KnobBinding>) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             ActionEditor(action: binding.action, direction: gesture.direction, modeNames: modeNames, targetBundleIDs: targetBundleIDs)
-            HStack {
-                Text("Label")
+            HStack(spacing: 10) {
+                Text("Label").foregroundStyle(Theme.ink2)
                 TextField("optional name for the menu and HUD", text: binding.label).frame(maxWidth: 280)
             }
             if gesture.isRotation {
-                HStack(spacing: 16) {
+                HStack(spacing: 20) {
                     Toggle("Speed up when spun fast", isOn: binding.accelerate)
                         .help("Scales volume steps, scroll distance and key repeats with turning speed")
-                    Stepper("Fire every \(binding.wrappedValue.everyNTicks == 1 ? "detent" : "\(binding.wrappedValue.everyNTicks) detents")",
-                            value: binding.everyNTicks, in: 1...12)
+                    KKStepper("Fire every \(binding.wrappedValue.everyNTicks == 1 ? "detent" : "\(binding.wrappedValue.everyNTicks) detents")",
+                              value: binding.everyNTicks, in: 1...12)
                         .help("Higher values make coarse actions like tab switching less twitchy")
                 }
                 Toggle("Do something different when spun fast", isOn: Binding(
@@ -527,16 +572,13 @@ private struct GestureRow: View {
                         }
                     }))
                 if let fast, let fastBinding = $mode.knobBinding(fast.id) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("When spun fast").font(.subheadline.weight(.semibold))
+                    Card(title: "When spun fast") {
                         ActionEditor(action: fastBinding.action, direction: gesture.direction, modeNames: modeNames, targetBundleIDs: targetBundleIDs)
-                        HStack {
-                            Text("Label")
+                        HStack(spacing: 10) {
+                            Text("Label").foregroundStyle(Theme.ink2)
                             TextField("optional", text: fastBinding.label).frame(maxWidth: 280)
                         }
                     }
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.08)))
                 }
             }
         }
@@ -551,40 +593,36 @@ private struct KeysEditor: View {
     let targetBundleIDs: [String]
 
     var body: some View {
-        Card {
-            HStack {
-                Text("Keys").font(.headline)
-                Text("Remap a key or shortcut to any action while this mode is active.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    mode.keys.append(KeyBinding(KeyCombo(Key.f13), .media(.playPause)))
-                } label: {
-                    Label("Add key", systemImage: "plus")
-                }
-                .controlSize(.small)
+        Card(title: "Keys", accessory: AnyView(
+            Button {
+                mode.keys.append(KeyBinding(KeyCombo(Key.f13), .media(.playPause)))
+            } label: {
+                Label("Add key", systemImage: "plus")
             }
-            if mode.keys.isEmpty {
-                Text("No key remaps. These apply to every keyboard, not only the F75.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
+            .buttonStyle(.kkSmall)
+        )) {
+            Note(mode.keys.isEmpty
+                ? "Remap a key or shortcut to any action while this mode is active. No key remaps yet. They apply to every keyboard, not only the F75."
+                : "Remap a key or shortcut to any action while this mode is active. Remapped keys are filled in on the drawing above.")
             ForEach(mode.keys) { item in
                 if let binding = $mode.keyBinding(item.id) {
-                    Divider()
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
+                    Rule()
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 10) {
                             KeyComboEditor(combo: binding.key)
-                            Toggle("Repeat while held", isOn: binding.repeats).font(.callout)
+                            Toggle("Repeat while held", isOn: binding.repeats)
                         }
-                        Image(systemName: "arrow.right").foregroundStyle(.secondary).padding(.top, 4)
+                        Image(systemName: "arrow.right").font(.system(size: 12, weight: .light))
+                            .foregroundStyle(Theme.ink2).padding(.top, 6)
                         ActionEditor(action: binding.action, modeNames: modeNames, targetBundleIDs: targetBundleIDs)
                         Spacer(minLength: 0)
                         Button {
                             mode.keys.removeAll { $0.id == item.id }
                         } label: {
-                            Image(systemName: "trash")
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .medium))
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.kkIcon)
+                        .help("Remove this key")
                     }
                 }
             }

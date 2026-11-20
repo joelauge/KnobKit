@@ -5,7 +5,7 @@ import SwiftUI
 
 let simulateNotification = Notification.Name("com.knobkit.app.simulate")
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let state = AppState()
     private let hid = HIDWatcher()
     private let tap = InputTap()
@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private var dispatcher: Dispatcher!
 
     private var statusItem: NSStatusItem!
-    private let popover = NSPopover()
+    private var menuPanel: MenuPanelController!
     private var window: NSWindow?
     private var permissionTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.write("KnobKit \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") starting")
+
+        // One look everywhere: menus, dialogs and panels follow the black theme.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
 
         hud.settings = { [unowned self] in self.state.config.settings }
         runner = ActionRunner(state: state, hud: hud)
@@ -103,6 +106,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         switch command {
         case "popover": togglePopover()
         case "snapshot": snapshotPopover()
+        case "shot": snapshotWindow()
+        case "hud:mode", "hud:level", "hud:plain":
+            // Shows a sample HUD and writes it to hud.png next to the log.
+            let url = Log.url.deletingLastPathComponent().appendingPathComponent("hud.png")
+            switch command {
+            case "hud:mode": hud.show(symbol: "arrow.up.arrow.down", title: "Scroll", subtitle: "Global", dotIndex: 1, dotCount: 5)
+            case "hud:level": hud.show(symbol: "speaker.wave.2", title: "Monitor -32.0 dB", subtitle: "Apollo x4", level: 0.47)
+            default: hud.show(symbol: "playpause", title: "Play / Pause")
+            }
+            hud.debugSnapshot(to: url)
         case "icons":
             let url = Log.url.deletingLastPathComponent().appendingPathComponent("menubar-icons.png")
             try? KnobIcon.contactSheet()?.representation(using: .png, properties: [:])?.write(to: url)
@@ -144,6 +157,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         Log.write("popover snapshot written (\(Int(size.width))x\(Int(size.height)))")
     }
 
+    /// Renders the configurator window's content to a PNG next to the log.
+    private func snapshotWindow() {
+        guard let view = window?.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let url = Log.url.deletingLastPathComponent().appendingPathComponent("window.png")
+        try? rep.representation(using: .png, properties: [:])?.write(to: url)
+        Log.write("window snapshot written (\(Int(view.bounds.width))x\(Int(view.bounds.height)))")
+    }
+
     // MARK: Permissions
 
     private func checkPermissions() {
@@ -174,14 +198,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         statusItem.button?.imagePosition = .imageLeading
         updateStatusItem()
 
-        popover.behavior = .transient
-        popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView:
+        menuPanel = MenuPanelController { [unowned self] in
             PopoverView(openConfigurator: { [weak self] item in
-                self?.popover.performClose(nil)
+                self?.menuPanel.close()
                 self?.showConfigurator(item)
             }, quit: { NSApp.terminate(nil) })
-            .environmentObject(state))
+            .environmentObject(self.state)
+        }
+        // The panel's height follows its content (modes, bindings, setup notes).
+        state.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, self.menuPanel.isShown else { return }
+                DispatchQueue.main.async { self.menuPanel.layout() }
+            }
+            .store(in: &cancellables)
     }
 
     private func updateStatusItem() {
@@ -204,13 +235,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            state.refreshContext()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-        }
+        if !menuPanel.isShown { state.refreshContext() }
+        menuPanel.toggle(from: button)
     }
 
     // MARK: Configurator window
@@ -222,6 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
             w.title = "KnobKit"
+            w.backgroundColor = Theme.nsBg
+            w.appearance = NSAppearance(named: .darkAqua)
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.isReleasedWhenClosed = false
@@ -244,6 +272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        // Do not open with a text field selected.
+        window?.makeFirstResponder(nil)
     }
 
     func windowWillClose(_ notification: Notification) {

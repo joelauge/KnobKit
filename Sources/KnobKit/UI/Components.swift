@@ -53,10 +53,12 @@ struct AppIcon: View {
 
     var body: some View {
         if let image = AppInfo.icon(for: bundleID) {
+            // Drawn in the theme's two tones so a row of app icons does not shout.
             Image(nsImage: image).resizable().interpolation(.high).frame(width: size, height: size)
+                .saturation(0).colorMultiply(Theme.ink)
         } else {
-            Image(systemName: "app.dashed").font(.system(size: size * 0.8)).frame(width: size, height: size)
-                .foregroundStyle(.secondary)
+            Image(systemName: "app.dashed").font(.system(size: size * 0.8, weight: .light)).frame(width: size, height: size)
+                .foregroundStyle(Theme.ink2)
         }
     }
 }
@@ -67,15 +69,11 @@ struct ModifierToggles: View {
     @Binding var modifiers: ModifierSet
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             ForEach(ModifierSet.ordered, id: \.rawValue) { m in
-                Toggle(isOn: Binding(
+                KeyToggle(text: m.symbols, isOn: Binding(
                     get: { modifiers.contains(m) },
-                    set: { on in if on { modifiers.insert(m) } else { modifiers.remove(m) } })
-                ) {
-                    Text(m.symbols).font(.system(size: 13, weight: .medium)).frame(width: 16)
-                }
-                .toggleStyle(.button)
+                    set: { on in if on { modifiers.insert(m) } else { modifiers.remove(m) } }))
             }
         }
     }
@@ -94,22 +92,20 @@ struct KeyComboEditor: View {
     var body: some View {
         HStack(spacing: 8) {
             ModifierToggles(modifiers: $combo.modifiers)
-            Menu {
-                ForEach(KeyNames.groups, id: \.0) { group in
-                    Menu(group.0) {
-                        ForEach(group.1, id: \.self) { code in
-                            Button(KeyNames.name(code)) { combo.keyCode = code }
-                        }
-                    }
+            KKMenu(items: {
+                KeyNames.groups.map { group in
+                    .submenu(group.0, group.1.map { code in
+                        .action(KeyNames.name(code), checked: code == combo.keyCode) { combo.keyCode = code }
+                    })
                 }
-            } label: {
-                Text(KeyNames.name(combo.keyCode)).frame(minWidth: 38)
+            }) {
+                KKMenuLabel(title: KeyNames.name(combo.keyCode), chevron: "chevron.up.chevron.down")
+                    .frame(minWidth: 38)
             }
-            .fixedSize()
             Button(recording ? "Press a key…" : "Record") {
                 if recording { stop() } else { start() }
             }
-            .tint(recording ? .red : nil)
+            .buttonStyle(KKButtonStyle(kind: recording ? .solid : .outline))
         }
         .onDisappear { stop() }
     }
@@ -142,29 +138,36 @@ struct SymbolPicker: View {
         Button {
             open = true
         } label: {
-            Image(systemName: symbol).font(.system(size: 15)).frame(width: 24, height: 20)
+            Image(systemName: symbol).font(.system(size: 14, weight: .light)).frame(width: 30)
         }
         .help("Mode icon")
         .popover(isPresented: $open, arrowEdge: .bottom) {
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(34), spacing: 4), count: 8), spacing: 4) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(32), spacing: 4), count: 8), spacing: 4) {
                 ForEach(Presets.modeSymbols, id: \.self) { name in
                     Button {
                         symbol = name
                         open = false
                     } label: {
-                        Image(systemName: name).font(.system(size: 15)).frame(width: 30, height: 28)
+                        Image(systemName: name).font(.system(size: 14, weight: .light))
+                            .frame(width: 32, height: 30)
+                            .foregroundStyle(name == symbol ? Theme.bg : Theme.ink)
+                            .background(RoundedRectangle(cornerRadius: Theme.radius).fill(name == symbol ? Theme.ink : .clear))
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(name == symbol ? Color.accentColor.opacity(0.25) : .clear))
                 }
             }
             .padding(12)
+            // Scaled so the popover's arrow takes the same black.
+            .background(Theme.bg.scaleEffect(1.6))
+            .kkRoot()
         }
     }
 }
 
 // MARK: - Small layout helpers
 
+/// A labelled ruler: name, leader line, value, then the slider and what it does.
 struct SliderRow: View {
     let title: String
     let help: String
@@ -174,43 +177,27 @@ struct SliderRow: View {
     let format: (Double) -> String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
                 Text(title)
-                Spacer()
-                Text(format(value)).monospacedDigit().foregroundStyle(.secondary)
+                Leader()
+                Text(format(value)).font(.kkMono).foregroundStyle(Theme.ink)
             }
-            Slider(value: $value, in: range, step: step)
-            Text(help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            KKSlider(value: $value, in: range, step: step)
+            if !help.isEmpty { Note(help) }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
 }
 
-struct Card<Content: View>: View {
-    var title: String?
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let title {
-                Text(title).font(.headline)
-            }
-            content
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.6)))
-    }
-}
-
+/// Granted / needs attention.
 struct StatusDot: View {
     let ok: Bool
 
     var body: some View {
-        Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-            .foregroundStyle(ok ? Color.green : Color.orange)
+        Image(systemName: ok ? "checkmark.circle" : "exclamationmark.triangle")
+            .font(.system(size: 14, weight: .light))
+            .foregroundStyle(ok ? Theme.ink : Theme.warn)
     }
 }
 

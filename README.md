@@ -18,6 +18,8 @@ keys you are holding.
 - Only your keyboard's knob is remapped. The Mac's own volume keys keep working.
 - Monitor level, mute, dim and mono on Universal Audio Apollo interfaces, which have
   no macOS volume control.
+- The keyboard's indicator lights blink five times when KnobKit picks it up, so you
+  can see which keyboard it is using.
 
 ## Compatibility
 
@@ -60,6 +62,11 @@ KnobKit never touches the keyboard's firmware. It works on the Mac side:
 
 Because the knob shares its signals with the keyboard's Fn media keys (Fn + volume
 keys), those keys count as the knob too.
+
+To blink the indicator lights, KnobKit writes the standard keyboard LED report (Caps
+Lock, Num Lock, Scroll Lock and so on) to the keyboard, then puts the lights back as
+they were. It opens the keyboard for output only. A keyboard with no such lights is
+left alone, and the option can be turned off under General.
 
 ## Install
 
@@ -109,6 +116,14 @@ Run the logic tests with:
 ```bash
 swift test
 ```
+
+### Packaging a download
+
+`scripts/package.sh` builds a universal app (Apple silicon and Intel), signs it with
+a Developer ID certificate and the hardened runtime, puts it in a signed disk image
+at `dist/KnobKit-<version>.dmg`, and has Apple notarize it. It needs a Developer ID
+Application certificate in the keychain and a `notarytool` keychain profile; the
+script's header says how to create one.
 
 ## Concepts
 
@@ -171,7 +186,7 @@ is affected. The UAD software must be running.
 | `~/Library/Application Support/KnobKit/config.json` | Everything: settings, profiles, modes, bindings. Readable JSON, safe to edit by hand; use General > Reload from disk afterwards. |
 | `~/Library/Logs/KnobKit/knobkit.log` | Knob events, which device sent them, and what was done. Ordinary typing is never logged. |
 | `Sources/KnobCore` | Config model, gesture engine, resolver, defaults. No UI, unit tested. |
-| `Sources/KnobKit` | The app: event tap, HID listener, actions, HUD, menu bar panel, configurator. |
+| `Sources/KnobKit` | The app: event tap, HID listener, actions, lights, HUD, menu bar panel, configurator. |
 | `Sources/KnobKit/UI/Theme.swift` | The look: black, cream one-pixel lines, and the controls built on them. |
 
 ## Connections
@@ -223,6 +238,10 @@ and adjust.
 - The knob cannot be told apart from the keyboard's own Fn volume / mute keys.
 - A single press waits one double-press window (Knob feel) before acting wherever a
   double press is bound.
+- Only the standard indicator lights can be blinked. RGB backlighting is controlled
+  by each keyboard's own protocol and is not touched. Over Bluetooth the blink is slow,
+  about a second per flash, because the keyboard only listens for messages from the
+  Mac every half second or so.
 - Scroll actions go to whatever is under the pointer, as with any scroll wheel.
 - Secure input fields (password prompts) block synthetic keystrokes by design.
 

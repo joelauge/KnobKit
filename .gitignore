@@ -13,3 +13,6 @@ DerivedData/
 
 # macOS
 .DS_Store
+
+# Packaged download (scripts/package.sh)
+dist/

@@ -57,20 +57,12 @@ final class LightShowModel: ObservableObject {
 
     func rebuild(for settings: LightShowSettings) {
         guard settings != built else { return }
-        // Only the picture itself is expensive; motion settings are cheap to swap.
-        var pictureOnly = settings, previous = built ?? LightShowSettings()
-        for keyPath in [\LightShowSettings.speed, \.brightness] { pictureOnly[keyPath: keyPath] = 0; previous[keyPath: keyPath] = 0 }
-        pictureOnly.softEdges = false; previous.softEdges = false
-        pictureOnly.upright = false; previous.upright = false
-        pictureOnly.wholeKeySteps = false; previous.wholeKeySteps = false
-        pictureOnly.loop = false; previous.loop = false
-        if built != nil, pictureOnly == previous, var current = show {
-            current.speed = settings.speed
-            current.brightness = settings.brightness
-            current.levels = settings.softEdges ? (settings.source == .image ? 5 : 3) : 2
-            current.loop = settings.loop
-            current.upright = settings.upright
-            current.wholeKeySteps = settings.wholeKeySteps
+        // Only the picture itself is expensive to make; everything else is swapped in.
+        func picture(_ s: LightShowSettings) -> [String] {
+            [s.source.rawValue, s.text, s.imagePath, s.color, s.source == .image ? "\(s.lines)" : ""]
+        }
+        if let previous = built, picture(previous) == picture(settings), var current = show {
+            LightShowSource.apply(settings, to: &current)
             show = current
         } else {
             show = LightShowSource.show(for: settings)
@@ -128,12 +120,17 @@ struct LightShowView: View {
                 Toggle("Soft edges", isOn: settings.softEdges)
                     .help("Keys partly covered by the picture glow dimmer, which makes movement smoother. Off gives hard on / off dots that move a whole key at a time.")
                 Toggle("Move a whole key at a time", isOn: settings.wholeKeySteps)
-                    .help("The picture holds its shape and jumps one key per step instead of gliding. Easier to read when the connection only carries a few frames a second.")
+                    .help("The picture holds its shape and jumps one key per step instead of gliding. The keyboard then gets one frame per key of travel, so the frame rate equals the speed. Turn it off for the smoothest motion the connection can carry.")
                 Toggle("Follow the true key positions", isOn: settings.upright)
                     .help("Each row of keys sits a little to the right of the one above. On: every key shows what is physically above it, so the picture stays upright. Off: rows are read key under key and move a whole key at a time, so upright strokes lean with the keys.")
                 Toggle("Loop", isOn: settings.loop)
+                Rule()
+                SliderRow(title: "Frame rate limit",
+                          help: "The most frames a second KnobKit sends. 21 is the pace of Epomaker's own app and the safe choice. Higher is smoother over the 2.4G receiver (Bluetooth cannot carry more than about 12), but if keys start to miss or repeat while it plays, bring it back down. Switching the keyboard off and on clears any trouble.",
+                          value: settings.frameRateLimit, range: 10...60, step: 1,
+                          format: { "\(Int($0)) frames a second" })
             }
-            Note("Plays on an F75 over Bluetooth or its 2.4G receiver. Nothing is saved on the keyboard: when you stop, its own lighting comes back by itself. Bluetooth carries about 12 frames a second; the keyboard itself tops out near 21, so KnobKit never sends faster than that.")
+            Note("Plays on an F75 over Bluetooth or its 2.4G receiver. Nothing is saved on the keyboard: when you stop, its own lighting comes back by itself. Bluetooth carries about 12 frames a second; the 2.4G receiver carries as many as the frame rate limit allows.")
         }
         .onAppear { sync() }
         .onChange(of: state.config.settings.lightShow) { _, _ in sync() }

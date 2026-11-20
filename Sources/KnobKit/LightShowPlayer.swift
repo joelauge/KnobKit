@@ -3,6 +3,26 @@ import Foundation
 import IOKit.hid
 import KnobCore
 
+/// Waits that are as long as asked.
+///
+/// A menu bar app counts as a background app, so macOS stretches its short sleeps to
+/// several times their length to save power. For frame pacing that turned a 5 ms gap
+/// into about 23 ms. `mach_wait_until` on a thread doing declared latency-critical
+/// work is held to its deadline.
+enum PreciseWait {
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    static func sleep(_ seconds: Double) {
+        guard seconds > 0 else { return }
+        let ticks = UInt64(seconds * 1_000_000_000) * UInt64(timebase.denom) / UInt64(timebase.numer)
+        mach_wait_until(mach_absolute_time() + ticks)
+    }
+}
+
 /// Plays a `LightShow` on the keyboard by streaming real-time lighting frames.
 ///
 /// Frames are not stored on the keyboard. When streaming stops, the keyboard goes back
@@ -14,10 +34,7 @@ final class LightShowPlayer: ObservableObject {
     /// When playback began, so the on-screen preview can keep in step.
     @Published private(set) var startedAt: Date?
 
-    /// Shortest time between frames: the vendor app's own pace.
-    static let frameFloor = 0.046
-
-    private let queue = DispatchQueue(label: "knobkit.lightshow", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "knobkit.lightshow", qos: .userInteractive)
     private let lock = NSLock()
     private var show: LightShow?
     private var token = 0
@@ -52,6 +69,11 @@ final class LightShowPlayer: ObservableObject {
         Log.write("light show: playing on \(device.name)")
 
         queue.async { [weak self] in
+            // Tells macOS this is timing-sensitive, so pauses between frames are not
+            // stretched while KnobKit sits in the background.
+            let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                                 reason: "Streaming lighting frames to the keyboard")
+            defer { ProcessInfo.processInfo.endActivity(activity) }
             var ending = "Stopped."
             KeyboardHID.withDevices(device) { devices in
                 guard let channel = KeyboardHID.lightingChannel(device, devices) else {
@@ -61,7 +83,7 @@ final class LightShowPlayer: ObservableObject {
                 // Over USB (the 2.4G receiver) packets closer together than a few
                 // milliseconds get dropped. Bluetooth already spaces every write by tens
                 // of milliseconds, so adding a gap there only costs frames.
-                let gap: useconds_t = device.transport.lowercased().contains("bluetooth") ? 0 : 5_000
+                let gap = device.transport.lowercased().contains("bluetooth") ? 0 : 0.005
                 var last: [[UInt8]] = []
                 var lastSent = Date.distantPast
                 var failures = 0
@@ -83,12 +105,12 @@ final class LightShowPlayer: ObservableObject {
                     // An unchanged picture is only re-sent often enough to stop the
                     // keyboard falling back to its own effect.
                     if packets == last, frameStart.timeIntervalSince(lastSent) < 0.5 {
-                        usleep(20_000)
+                        PreciseWait.sleep(0.004)
                         continue
                     }
                     var sent = true
                     for (index, packet) in packets.enumerated() {
-                        if index > 0, gap > 0 { usleep(gap) }
+                        if index > 0 { PreciseWait.sleep(gap) }
                         sent = KeyboardHID.send(packet, on: channel) && sent
                     }
                     if sent {
@@ -104,16 +126,16 @@ final class LightShowPlayer: ObservableObject {
                             ending = "The keyboard stopped answering. Is it still connected?"
                             break
                         }
-                        usleep(150_000)
+                        PreciseWait.sleep(0.15)
                     }
 
-                    // Never faster than the vendor's own app streams (about 21 frames a
-                    // second). The keyboard scans its keys and paints its lights on the
-                    // same small processor: frames arriving faster are reported to make
-                    // it drop or double keystrokes, and eventually stop answering until
-                    // it is replugged.
+                    // Never faster than the show's limit. The default, 21 frames a second,
+                    // is the pace of the vendor's own app. The keyboard scans its keys and
+                    // paints its lights on the same small processor, and over the cable
+                    // frames arriving faster are reported to make it miss or double
+                    // keystrokes. Over the 2.4G receiver an F75 typed normally at 37.
                     let spent = Date().timeIntervalSince(frameStart)
-                    if spent < Self.frameFloor { usleep(useconds_t((Self.frameFloor - spent) * 1_000_000)) }
+                    PreciseWait.sleep(1 / min(max(current.maxFrameRate, 5), 60) - spent)
 
                     let window = Date().timeIntervalSince(windowStart)
                     if window >= 1 {
@@ -185,6 +207,21 @@ enum LightShowSource {
         return (UInt8((value >> 16) & 0xff), UInt8((value >> 8) & 0xff), UInt8(value & 0xff))
     }
 
+    /// Copies everything except the picture itself from the settings onto a show.
+    static func apply(_ settings: LightShowSettings, to show: inout LightShow) {
+        show.lines = settings.source == .image ? max(settings.lines, 1) : 1
+        show.speed = settings.speed
+        show.brightness = settings.brightness
+        show.softEdges = settings.softEdges
+        // Text is one colour, so it can keep nearly its exact shade. Pictures, and text
+        // with soft edges, need coarser steps to keep the number of colour groups down.
+        show.colorSteps = settings.source == .image ? 6 : (settings.softEdges ? 4 : 16)
+        show.maxFrameRate = settings.frameRateLimit
+        show.loop = settings.loop
+        show.upright = settings.upright
+        show.wholeKeySteps = settings.wholeKeySteps
+    }
+
     /// The show for the saved settings, or nil when an image is chosen but can't be read.
     static func show(for settings: LightShowSettings) -> LightShow? {
         let bitmap: Bitmap
@@ -198,15 +235,7 @@ enum LightShowSource {
             bitmap = loaded
         }
         var show = LightShow(bitmap: bitmap)
-        show.lines = settings.source == .image ? max(settings.lines, 1) : 1
-        show.speed = settings.speed
-        show.brightness = settings.brightness
-        // Text needs only an in-between step for soft edges; pictures get more
-        // steps, which the frame budget trims when a frame is busy.
-        show.levels = settings.softEdges ? (settings.source == .image ? 5 : 3) : 2
-        show.loop = settings.loop
-        show.upright = settings.upright
-        show.wholeKeySteps = settings.wholeKeySteps
+        apply(settings, to: &show)
         return show
     }
 }

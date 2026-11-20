@@ -476,7 +476,6 @@ final class ConfigTests: XCTestCase {
         for y in 0..<6 { bitmap.set(0, y, 255, 255, 255) }
         var show = LightShow(bitmap: bitmap)
         show.speed = 1
-        show.levels = 2
         show.upright = false
         XCTAssertEqual(show.pixelsPerKey, 1, accuracy: 0.0001)
         XCTAssertEqual(show.lineDuration, 17, accuracy: 0.0001)
@@ -508,7 +507,7 @@ final class ConfigTests: XCTestCase {
         var bitmap = Bitmap(width: 64, height: 6)
         for y in 0..<6 { for x in 0..<64 { bitmap.set(x, y, UInt8(x * 4), UInt8(y * 40), UInt8(255 - x * 3)) } }
         var show = LightShow(bitmap: bitmap)
-        show.levels = 6
+        show.colorSteps = 6
         for time in stride(from: 3.0, to: 9.0, by: 0.7) {
             let frame = show.frame(at: time, budget: 56)
             let lights = frame.flatMap(\.lights)
@@ -539,16 +538,38 @@ final class ConfigTests: XCTestCase {
         show.speed = 1
         XCTAssertTrue(show.upright, "true key positions are the default")
         // At 9 s the column covers x 7…8: exactly the 7 key; half of Y and half of U.
-        show.levels = 3
+        show.softEdges = true
+        show.colorSteps = 3
         let soft = Set(show.frame(at: 9).flatMap(\.lights))
         let codes = Set(F75Board.keys.filter { soft.contains($0.light) }.compactMap(\.keyCode))
         XCTAssertTrue(codes.isSuperset(of: [26, 16, 32]), "7 fully, Y and U half each")
         // With hard edges a stroke lights the nearest key in each row. A little later it
         // has moved left to x 6.8…7.8: over 7 (7…8), Y (6.5…7.5), H (6.75…7.75) and
         // N (7.25…8.25), which is one key per row in an upright line.
-        show.levels = 2
+        show.softEdges = false
         let hard = Set(show.frame(at: 9.2).flatMap(\.lights))
         let nearest = Set(F75Board.keys.filter { hard.contains($0.light) && (1...4).contains($0.row) }.compactMap(\.keyCode))
         XCTAssertEqual(nearest, [26, 16, 4, 45])
+    }
+
+    /// A key on the edge of a letter must be the letter's colour or dark, never a
+    /// colour of its own. (Rounding red, green and blue separately once turned the
+    /// edges of purple text blue for an instant.)
+    func testHardEdgesNeverInventAColour() {
+        var show = LightShow(bitmap: PixelFont.render("KNOW DRIVE", red: 0xBF, green: 0x5A, blue: 0xF2))
+        show.speed = 11
+        show.colorSteps = 16
+        var seen = Set<[UInt8]>()
+        var time = 0.0
+        while time < show.duration {
+            for group in show.frame(at: time) { seen.insert([group.red, group.green, group.blue]) }
+            time += 0.0007
+        }
+        XCTAssertEqual(seen.count, 1, "one colour only: \(seen)")
+        // And it is close to the purple that was asked for.
+        let colour = seen.first ?? [0, 0, 0]
+        XCTAssertEqual(Double(colour[0]), 0xBF, accuracy: 10)
+        XCTAssertEqual(Double(colour[1]), 0x5A, accuracy: 10)
+        XCTAssertEqual(Double(colour[2]), 0xF2, accuracy: 10)
     }
 }

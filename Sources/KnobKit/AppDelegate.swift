@@ -141,6 +141,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if let show = LightShowSource.show(for: state.config.settings.lightShow), let device = state.lightShowDevice {
                 state.lightShow.play(show, on: device)
             }
+        case "lights:glide":
+            // Plays the saved show gliding at true key positions, without changing the saved settings.
+            var settings = state.config.settings.lightShow
+            settings.wholeKeySteps = false
+            settings.upright = true
+            if let show = LightShowSource.show(for: settings), let device = state.lightShowDevice {
+                state.lightShow.play(show, on: device)
+            }
         case "lights:stop": state.lightShow.stop()
         case "lights:steps:on": state.config.settings.lightShow.wholeKeySteps = true
         case "lights:steps:off": state.config.settings.lightShow.wholeKeySteps = false
@@ -157,6 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                let action = try? JSONDecoder().decode(Action.self, from: data) {
                 Log.write("test hook: running \(action.summary)")
                 runner.run(action, info: RunInfo())
+                return
+            }
+            if command.hasPrefix("lights:fps:"), let fps = Double(command.dropFirst(11)) {
+                state.config.settings.lightShow.frameRateLimit = min(max(fps, 10), 60)
                 return
             }
             if command.hasPrefix("lights:speed:"), let speed = Double(command.dropFirst(13)) {

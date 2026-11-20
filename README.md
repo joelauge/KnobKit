@@ -195,8 +195,15 @@ past it:
   page shows a live preview on a drawing of the keyboard.
 
 It uses the same real-time lighting frames as the connect flash. Nothing is saved on
-the keyboard: stop, and its own lighting effect comes back by itself. Over Bluetooth
-an F75 takes about twelve frames a second.
+the keyboard: stop, and its own lighting effect comes back by itself.
+
+How smooth it looks depends on the connection. Bluetooth carries about 12 frames a
+second. The 2.4G receiver carries far more, so there the **frame rate limit** on the
+page decides: it starts at 21, the pace of Epomaker's own app, and goes up to 60. On
+an F75 over the receiver, a short test at 50 frames a second looked best and typing
+stayed normal, but the keyboard paints its lights and scans its keys on one small
+processor, and over the cable it is reported to miss keystrokes when fed too fast. If
+keys start to miss or repeat while a show plays, lower the limit.
 
 ## Universal Audio Apollo
 

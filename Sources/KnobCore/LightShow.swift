@@ -26,6 +26,13 @@ public struct Bitmap: Sendable, Equatable {
         pixels[i + 2] = b
     }
 
+    /// One pixel, 0…1 per channel. Outside the image is black.
+    public func pixel(_ x: Int, _ y: Int) -> (r: Double, g: Double, b: Double) {
+        guard x >= 0, y >= 0, x < width, y < height else { return (0, 0, 0) }
+        let i = (y * width + x) * 3
+        return (Double(pixels[i]) / 255, Double(pixels[i + 1]) / 255, Double(pixels[i + 2]) / 255)
+    }
+
     /// Average colour over a rectangle given in pixel coordinates, 0…1 per channel.
     /// Everything outside the image counts as black.
     public func average(x0: Double, y0: Double, x1: Double, y1: Double) -> (r: Double, g: Double, b: Double) {
@@ -67,9 +74,15 @@ public struct LightShow: Sendable, Equatable {
     public var speed = 8.0
     /// 0…1.
     public var brightness = 1.0
-    /// Brightness steps per colour channel: 2 gives hard on / off edges, more gives
-    /// softer ones (and more to send).
-    public var levels = 2
+    /// Off: each key shows the single pixel of the picture under its centre, so every
+    /// lit key has a colour that is really in the picture. On: each key averages the
+    /// key-wide patch above it, so a key that is partly covered glows dimmer.
+    public var softEdges = false
+    /// How many steps each colour channel is rounded to before keys are grouped by
+    /// colour. Fewer steps mean fewer groups, so less to send.
+    public var colorSteps = 6
+    /// Most frames a second to send.
+    public var maxFrameRate = 21.0
     public var loop = true
     /// How the picture is laid over the staggered rows.
     ///
@@ -110,21 +123,25 @@ public struct LightShow: Sendable, Equatable {
         // Left edge of the keyboard, in key widths along the image.
         let offset = -F75Board.width + speed * (t - Double(line) * lineDuration)
         let ppk = pixelsPerKey
-        let soft = levels > 2
         // On the plain grid the picture steps key by key unless soft edges are wanted.
-        let shift = wholeKeySteps || (!upright && !soft) ? offset.rounded(.down) : offset
-        // With soft edges a key averages the key-wide patch of picture above it. With
-        // hard edges it shows the point at its centre, so fine detail is kept as the
-        // picture moves instead of being averaged away. (The sliver starts a hair right
-        // of centre so a key sitting exactly on a pixel boundary picks one side.)
-        let aperture = soft ? 1.0 : 0.02
+        let shift = wholeKeySteps || (!upright && !softEdges) ? offset.rounded(.down) : offset
         var out: [Int: (r: Double, g: Double, b: Double)] = [:]
         for key in F75Board.keys {
             let centre = upright ? key.centerX : Double(F75Board.column(of: key)) + 0.5
-            let left = soft ? centre - 0.5 : centre + 0.001
-            let x0 = (left + shift) * ppk
-            let y0 = Double(line * F75Board.rows + key.row) * ppk
-            let c = bitmap.average(x0: x0, y0: y0, x1: x0 + aperture * ppk, y1: y0 + ppk)
+            let top = Double(line * F75Board.rows + key.row)
+            let c: (r: Double, g: Double, b: Double)
+            if softEdges {
+                let x0 = (centre - 0.5 + shift) * ppk
+                c = bitmap.average(x0: x0, y0: top * ppk, x1: x0 + ppk, y1: (top + 1) * ppk)
+            } else {
+                // The one pixel under the key's centre. A whole pixel is never blended
+                // with its neighbour, so a key on the edge of a shape is either the
+                // shape's colour or dark, never a mixture with a hue of its own. (The
+                // hair's width added to x makes a key sitting exactly on a pixel
+                // boundary pick the same side every time.)
+                c = bitmap.pixel(Int(((centre + shift) * ppk + 0.001).rounded(.down)),
+                                 Int(((top + 0.5) * ppk).rounded(.down)))
+            }
             out[key.light] = (c.r * brightness, c.g * brightness, c.b * brightness)
         }
         return out
@@ -134,10 +151,12 @@ public struct LightShow: Sendable, Equatable {
     /// `budget` payload bytes where that is possible.
     public func frame(at time: Double, budget: Int = 4 * AulaLighting.chunk) -> [AulaLighting.Group] {
         let colors = colors(at: time)
-        var steps = max(levels, 2)
+        // A busy frame is first given coarser colours, then has its smallest colour
+        // groups folded into their neighbours.
+        var steps = max(colorSteps, 2)
         while true {
             let groups = Self.groups(colors, levels: steps)
-            if Self.size(groups) <= budget || steps == 2 {
+            if Self.size(groups) <= budget || steps <= min(3, colorSteps) {
                 return Self.fit(groups, budget: budget)
             }
             steps -= 1

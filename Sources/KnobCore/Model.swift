@@ -675,12 +675,14 @@ public struct LightShowSettings: Hashable, Sendable, Codable {
     /// Keep the picture upright over the staggered rows (see `LightShow.upright`).
     public var upright = true
     public var wholeKeySteps = false
+    /// Most frames a second to send. 21 is the pace of the vendor's own app.
+    public var frameRateLimit = 21.0
     public var loop = true
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case source, text, imagePath, color, speed, lines, brightness, softEdges, upright, wholeKeySteps, loop
+        case source, text, imagePath, color, speed, lines, brightness, softEdges, upright, wholeKeySteps, frameRateLimit, loop
     }
 
     public init(from decoder: Decoder) throws {
@@ -696,6 +698,7 @@ public struct LightShowSettings: Hashable, Sendable, Codable {
         softEdges = c.val(.softEdges, d.softEdges)
         upright = c.val(.upright, d.upright)
         wholeKeySteps = c.val(.wholeKeySteps, d.wholeKeySteps)
+        frameRateLimit = c.val(.frameRateLimit, d.frameRateLimit)
         loop = c.val(.loop, d.loop)
     }
 }

@@ -79,7 +79,7 @@ output only. The flash can be turned off under General.
 
 ## Install
 
-Download **KnobKit-0.1.0.dmg** from the
+Download **KnobKit-0.2.0.dmg** from the
 [latest release](https://github.com/joelauge/KnobKit/releases/latest), open it and
 drag KnobKit to Applications. The app is signed and notarized, and runs on Apple
 silicon and Intel Macs.

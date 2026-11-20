@@ -236,8 +236,8 @@ struct GeneralView: View {
                 Toggle("Knob remapping enabled", isOn: $state.config.settings.enabled)
                 Toggle("Open at login", isOn: Binding(get: { launchAtLogin }, set: setLaunchAtLogin))
                 Toggle("Show the mode name next to the menu bar icon", isOn: $state.config.settings.menuBarShowsModeName)
-                Toggle("Flash the keyboard's indicator lights five times when it connects", isOn: $state.config.settings.flashOnConnect)
-                    .help("Caps Lock and any other indicator lights the keyboard reports. Backlighting is not touched.")
+                Toggle("Flash the keyboard's lights five times when it connects", isOn: $state.config.settings.flashOnConnect)
+                    .help("On the F75 the whole backlight flashes white. Other keyboards blink their indicator lights, such as Caps Lock. Nothing is saved on the keyboard.")
             }
 
             Card(title: "On-screen display") {

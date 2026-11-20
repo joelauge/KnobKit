@@ -18,8 +18,8 @@ keys you are holding.
 - Only your keyboard's knob is remapped. The Mac's own volume keys keep working.
 - Monitor level, mute, dim and mono on Universal Audio Apollo interfaces, which have
   no macOS volume control.
-- The keyboard's indicator lights blink five times when KnobKit picks it up, so you
-  can see which keyboard it is using.
+- The keyboard's lights flash five times when KnobKit picks it up, so you can see
+  which keyboard it is using. On the F75 that is the whole backlight.
 
 ## Compatibility
 
@@ -63,10 +63,17 @@ KnobKit never touches the keyboard's firmware. It works on the Mac side:
 Because the knob shares its signals with the keyboard's Fn media keys (Fn + volume
 keys), those keys count as the knob too.
 
-To blink the indicator lights, KnobKit writes the standard keyboard LED report (Caps
-Lock, Num Lock, Scroll Lock and so on) to the keyboard, then puts the lights back as
-they were. It opens the keyboard for output only. A keyboard with no such lights is
-left alone, and the option can be turned off under General.
+The flash on connecting is done one of two ways:
+
+- **F75 over Bluetooth or its 2.4G receiver:** the whole backlight goes white and
+  dark. KnobKit sends the keyboard's real-time lighting frames, the ones Epomaker's
+  own app streams in its music mode. Nothing is saved on the keyboard, and its own
+  effect returns a moment after the last frame.
+- **Any other keyboard:** the standard indicator lights (Caps Lock, Num Lock, Scroll
+  Lock and so on) blink and are put back as they were.
+
+KnobKit never writes a keyboard's saved settings, and it opens the keyboard for
+output only. The flash can be turned off under General.
 
 ## Install
 
@@ -246,10 +253,13 @@ and adjust.
 - The knob cannot be told apart from the keyboard's own Fn volume / mute keys.
 - A single press waits one double-press window (Knob feel) before acting wherever a
   double press is bound.
-- Only the standard indicator lights can be blinked. RGB backlighting is controlled
-  by each keyboard's own protocol and is not touched. Over Bluetooth the blink is slow,
-  about a second per flash, because the keyboard only listens for messages from the
-  Mac every half second or so.
+- The backlight flash is only known for the F75 family's wireless connections, and
+  was seen working on an F75 over Bluetooth. Backlights on other keyboards use their
+  own protocols and are not touched; those keyboards get the indicator lights, which
+  some (the F75 among them) accept without showing anything.
+- Over Bluetooth the flash is slow when the keyboard has been idle, up to about seven
+  seconds for five flashes, because an idle keyboard only listens for messages from
+  the Mac every half second or so.
 - Scroll actions go to whatever is under the pointer, as with any scroll wheel.
 - Secure input fields (password prompts) block synthetic keystrokes by design.
 
@@ -259,3 +269,9 @@ MIT. See [LICENSE](LICENSE).
 
 KnobKit is an independent project. It is not affiliated with or endorsed by Epomaker,
 Aula or Universal Audio; their names are used only to say what it works with.
+
+## Thanks
+
+The F75's lighting packet format comes from the protocol notes in
+[bakiakyol/aula-f75-hub](https://github.com/bakiakyol/aula-f75-hub) and
+[headblade-dev/keylux-linux](https://github.com/headblade-dev/keylux-linux).

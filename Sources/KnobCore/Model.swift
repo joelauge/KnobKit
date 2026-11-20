@@ -665,7 +665,7 @@ public struct Settings: Hashable, Sendable, Codable {
     public var hudPosition: HUDPosition = .bottomCenter
     public var hudDuration = 1.1
     public var menuBarShowsModeName = false
-    /// Blink the keyboard's indicator lights when KnobKit picks it up.
+    /// Flash the keyboard's lights when KnobKit picks it up.
     public var flashOnConnect = true
 
     /// Highest level (dB) the knob may raise an Apollo monitor output to.

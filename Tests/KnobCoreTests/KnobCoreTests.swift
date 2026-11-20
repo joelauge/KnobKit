@@ -377,4 +377,28 @@ final class ConfigTests: XCTestCase {
             }
         }
     }
+
+    // MARK: Aula lighting packets
+
+    /// Two packets captured from the vendor's app, byte for byte.
+    func testAulaPacketsMatchVendorCaptures() {
+        let cyan = AulaLighting.packet(command: 0x88, sub: 1, payload: [0x00, 0xff, 0xff, 0x01, 0x37])
+        XCTAssertEqual(cyan, [0x13, 0x88, 0x01, 0x00, 0x15, 0x00, 0xff, 0xff, 0x01, 0x37,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0xe7])
+        let blue = AulaLighting.packet(command: 0x88, sub: 1, payload: [0x00, 0x00, 0xff, 0x02, 0x24, 0x2a])
+        XCTAssertEqual(blue, [0x13, 0x88, 0x01, 0x00, 0x16, 0x00, 0x00, 0xff, 0x02, 0x24, 0x2a,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0x01])
+    }
+
+    func testAulaWholeBoardFrame() {
+        // The vendor app's own "whole board dark" frame is 13 88 01 00 23 00…
+        let dark = AulaLighting.wholeBoard(red: 0, green: 0, blue: 0)
+        XCTAssertEqual(Array(dark[0..<8]), [0x13, 0x88, 0x01, 0x00, 0x23, 0x00, 0x00, 0x00])
+        XCTAssertEqual(dark.count, 20)
+        XCTAssertEqual(dark[19], 0xbf)
+        let white = AulaLighting.wholeBoard(red: 255, green: 255, blue: 255)
+        XCTAssertEqual(Array(white[4..<8]), [0x23, 0xff, 0xff, 0xff])
+        XCTAssertEqual(white[19], 0xbc)
+        XCTAssertNil(AulaLighting.packet(command: 0x88, sub: 1, payload: [UInt8](repeating: 0, count: 15)))
+    }
 }

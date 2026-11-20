@@ -70,8 +70,17 @@ left alone, and the option can be turned off under General.
 
 ## Install
 
-There is no packaged download yet: build it from source. You need Xcode (Swift 5.9 or
-later).
+Download **KnobKit-0.1.0.dmg** from the
+[latest release](https://github.com/joelauge/KnobKit/releases/latest), open it and
+drag KnobKit to Applications. The app is signed and notarized, and runs on Apple
+silicon and Intel Macs.
+
+On first launch KnobKit opens its Devices page and asks for Accessibility and Input
+Monitoring. Grant both, relaunch if asked, and turn the knob.
+
+### Build from source
+
+You need Xcode (Swift 5.9 or later).
 
 ```bash
 git clone https://github.com/joelauge/KnobKit.git
@@ -87,13 +96,12 @@ Build, install to `/Applications` and launch (replaces a previous install):
 scripts/install.sh
 ```
 
-On first launch KnobKit opens its Devices page and asks for Accessibility and Input
-Monitoring. Grant both, relaunch if asked, and turn the knob.
-
 The build script signs with the first `Apple Development` identity in your keychain
 so the permission grants survive rebuilds. Without one it falls back to an ad-hoc
 signature, and macOS asks for the permissions again after every build. Set
-`KNOBKIT_SIGN_IDENTITY` to choose an identity.
+`KNOBKIT_SIGN_IDENTITY` to choose an identity. A build you sign yourself and the
+downloaded app count as different apps to macOS, so switching between them means
+granting the two permissions again.
 
 Open at login is the toggle under General, or from a shell:
 

@@ -665,6 +665,8 @@ public struct Settings: Hashable, Sendable, Codable {
     public var hudPosition: HUDPosition = .bottomCenter
     public var hudDuration = 1.1
     public var menuBarShowsModeName = false
+    /// Blink the keyboard's indicator lights when KnobKit picks it up.
+    public var flashOnConnect = true
 
     /// Highest level (dB) the knob may raise an Apollo monitor output to.
     public var monitorCeiling = -20.0
@@ -692,7 +694,7 @@ public struct Settings: Hashable, Sendable, Codable {
         case showHUD, hudOnEveryAction, hudPosition, hudDuration, menuBarShowsModeName
         case doublePressInterval, longPressDuration, chordGrace, virtualHoldTimeout
         case accelSlowRate, accelFastRate, accelMaxMultiplier, fastThreshold
-        case monitorCeiling
+        case monitorCeiling, flashOnConnect
     }
 
     public init(from decoder: Decoder) throws {
@@ -716,6 +718,7 @@ public struct Settings: Hashable, Sendable, Codable {
         accelMaxMultiplier = c.val(.accelMaxMultiplier, d.accelMaxMultiplier)
         fastThreshold = c.val(.fastThreshold, d.fastThreshold)
         monitorCeiling = c.val(.monitorCeiling, d.monitorCeiling)
+        flashOnConnect = c.val(.flashOnConnect, d.flashOnConnect)
     }
 }
 

@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let hid = HIDWatcher()
     private let tap = InputTap()
     private let hud = HUDController()
+    private let lights = LEDFlasher()
     private var runner: ActionRunner!
     private var dispatcher: Dispatcher!
 
@@ -36,6 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.updateStatusItem()
         }
         state.onModeChanged = { [unowned self] in self.updateStatusItem() }
+        state.onKnobConnected = { [unowned self] device in
+            let settings = self.state.config.settings
+            guard settings.flashOnConnect, settings.deviceMode == .selected else { return }
+            self.lights.flash(device)
+        }
         // The active mode also changes when you switch apps, so follow the context itself.
         state.$context
             .receive(on: RunLoop.main)
@@ -110,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "popover": togglePopover()
         case "snapshot": snapshotPopover()
         case "shot": snapshotWindow()
+        case "flash":
+            if let device = state.devices.first(where: { state.isSelected($0) }) { lights.flash(device, force: true) }
         case "hud:mode", "hud:level", "hud:plain":
             // Shows a sample HUD and writes it to hud.png next to the log.
             let url = Log.url.deletingLastPathComponent().appendingPathComponent("hud.png")

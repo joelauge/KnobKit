@@ -123,6 +123,8 @@ final class AppState: ObservableObject {
     var isRecordingKey = false
     var onConfigChanged: (() -> Void)?
     var onModeChanged: (() -> Void)?
+    /// A knob keyboard was connected, ticked or found.
+    var onKnobConnected: ((HIDDeviceInfo) -> Void)?
 
     private var saveWork: DispatchWorkItem?
     private var lastContextRefresh: TimeInterval = 0
@@ -289,7 +291,10 @@ final class AppState: ObservableObject {
 
     func setSelected(_ device: HIDDeviceInfo, _ on: Bool) {
         config.settings.devices.removeAll { $0.vendorID == device.vendorID && $0.productID == device.productID }
-        if on { config.settings.devices.append(device.ref) }
+        if on {
+            config.settings.devices.append(device.ref)
+            onKnobConnected?(device)
+        }
     }
 
     /// True while a selected knob device is connected.
@@ -315,7 +320,7 @@ final class AppState: ObservableObject {
         guard learningKnob, !device.isBuiltIn else { return }
         stopLearningKnob()
         if config.settings.deviceMode != .selected { config.settings.deviceMode = .selected }
-        if !isSelected(device) { setSelected(device, true) }
+        if isSelected(device) { onKnobConnected?(device) } else { setSelected(device, true) }
         learnedDevice = device.name
         Log.write("learned knob device \(device.name) [\(device.ref.id)] via \(device.transport)")
     }
@@ -323,7 +328,10 @@ final class AppState: ObservableObject {
     /// Called whenever the HID device list changes: tick any Epomaker keyboard we have
     /// not seen yet.
     func updateDevices(_ list: [HIDDeviceInfo]) {
+        let before = Set(devices.map(\.registryID))
         devices = list
+        // Keyboards already ticked that have just appeared (at launch, or on reconnect).
+        for d in list where isSelected(d) && !before.contains(d.registryID) { onKnobConnected?(d) }
         for d in list where d.looksLikeEpomaker && !isSelected(d) {
             let known = UserDefaults.standard.stringArray(forKey: "autoSelectedDevices") ?? []
             guard !known.contains(d.ref.id) else { continue }

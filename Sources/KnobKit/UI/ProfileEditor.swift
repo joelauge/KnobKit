@@ -419,7 +419,7 @@ private struct ModeEditor: View {
             section("Turn", gestures: [.rotateCW, .rotateCCW], presetTarget: false)
             section("Press", gestures: [.press, .doublePress, .triplePress], presetTarget: nil)
             section("Hold gestures", gestures: [.longPress, .pressRotateCW, .pressRotateCCW], presetTarget: true,
-                    note: "Not available on the F75: it sends a knob press as an instant tap however long it is held, so it cannot signal a long press or a hold-and-turn. These only work with a controller that reports the knob being held down.")
+                    note: "These depend on the keyboard. The F75 sends a knob press as an instant tap however long it is held, so it cannot signal a long press or a hold-and-turn. They work with a keyboard that reports the knob being held down.")
 
             KeysEditor(mode: $mode, modeNames: modeNames, targetBundleIDs: isGlobal ? [] : profile.bundleIDs)
         }
@@ -602,7 +602,7 @@ private struct KeysEditor: View {
             .buttonStyle(.kkSmall)
         )) {
             Note(mode.keys.isEmpty
-                ? "Remap a key or shortcut to any action while this mode is active. No key remaps yet. They apply to every keyboard, not only the F75."
+                ? "Remap a key or shortcut to any action while this mode is active. No key remaps yet. They apply to every keyboard, not only the one with the knob."
                 : "Remap a key or shortcut to any action while this mode is active. Remapped keys are filled in on the drawing above.")
             ForEach(mode.keys) { item in
                 if let binding = $mode.keyBinding(item.id) {

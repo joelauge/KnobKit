@@ -43,6 +43,7 @@ final class MenuPanelController: NSObject, NSWindowDelegate {
     private var host: NSHostingView<AnyView>?
     private var monitors: [Any] = []
     private weak var button: NSStatusBarButton?
+    private var dismissedAt: Date?
     private let makeContent: () -> AnyView
 
     init<Content: View>(content: @escaping () -> Content) {
@@ -52,7 +53,16 @@ final class MenuPanelController: NSObject, NSWindowDelegate {
     var isShown: Bool { panel?.isVisible == true }
 
     func toggle(from button: NSStatusBarButton) {
-        if isShown { close() } else { show(from: button) }
+        if isShown {
+            close()
+        } else if let at = dismissedAt, Date().timeIntervalSince(at) < 0.3 {
+            // The click on the icon that asked for this toggle already dismissed the
+            // panel (as an outside click, or by taking key away). Leave it closed
+            // instead of reopening it.
+            dismissedAt = nil
+        } else {
+            show(from: button)
+        }
     }
 
     private func ensurePanel() -> KeyPanel {
@@ -71,7 +81,7 @@ final class MenuPanelController: NSObject, NSWindowDelegate {
         p.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
         p.appearance = NSAppearance(named: .darkAqua)
         p.delegate = self
-        p.onCancel = { [weak self] in self?.close() }
+        p.onCancel = { [weak self] in self?.dismiss() }
         let host = NSHostingView(rootView: AnyView(MenuPanelChrome(model: model, content: makeContent())))
         p.contentView = host
         self.host = host
@@ -94,9 +104,18 @@ final class MenuPanelController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        guard isShown else { return }
         removeMonitors()
         button?.highlight(false)
         panel?.orderOut(nil)
+    }
+
+    /// Closed by something other than the status item: a click elsewhere, Escape, or
+    /// another window taking key.
+    private func dismiss() {
+        guard isShown else { return }
+        dismissedAt = Date()
+        close()
     }
 
     /// Sizes the panel to its content and hangs it under the status item. Call again
@@ -120,20 +139,20 @@ final class MenuPanelController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        close()
+        dismiss()
     }
 
     private func installMonitors() {
         removeMonitors()
         let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         // Clicks in other apps.
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in self?.close() }) {
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in self?.dismiss() }) {
             monitors.append(global)
         }
         // Clicks in our own windows. The status item toggles the panel itself.
         if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
             guard let self else { return event }
-            if event.window !== self.panel, event.window !== self.button?.window { self.close() }
+            if event.window !== self.panel, event.window !== self.button?.window { self.dismiss() }
             return event
         }) {
             monitors.append(local)

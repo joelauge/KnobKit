@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// The look of every KnobKit surface: matte black, warm cream ink, one-pixel lines.
-/// It follows the quick-guide card that ships in the F75's box: outline drawings,
+/// It follows the quick-guide card that ships in the Epomaker x Aula F75's box: outline drawings,
 /// leader lines from a part to its label, a wide heavy title face.
 enum Theme {
     /// One background everywhere, so outlined controls can sit on any surface.

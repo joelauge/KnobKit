@@ -29,7 +29,7 @@ struct PermissionsCard: View {
             row(ok: state.hidAccess == .granted || !needsDeviceAccess,
                 title: "Input Monitoring",
                 detail: needsDeviceAccess
-                    ? "Lets KnobKit tell the F75's knob apart from your Mac's own volume keys. Only volume and mute signals are read."
+                    ? "Lets KnobKit tell your keyboard's knob apart from your Mac's own volume keys. Only volume and mute signals are read."
                     : "Not needed while every volume key counts as the knob.",
                 action: "Grant…") {
                 HIDWatcher.requestAccess()
@@ -95,7 +95,34 @@ struct DevicesView: View {
                 RadioRow(title: "Any volume or mute key, on any keyboard", selected: state.config.settings.deviceMode == .any) {
                     state.config.settings.deviceMode = .any
                 }
-                Note("The F75 sends its knob as volume up, volume down and mute, the same signals as its Fn media keys. With device filtering your MacBook's own volume keys and other keyboards keep working normally.")
+                Note("The knob reaches the Mac as volume up, volume down and mute, the same signals as the keyboard's Fn media keys. With device filtering your MacBook's own volume keys and other keyboards keep working normally.")
+            }
+
+            Card(title: "Find my knob") {
+                HStack(alignment: .center, spacing: 14) {
+                    DialView(position: 0.5, size: 46).opacity(state.learningKnob ? 1 : 0.6)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if state.learningKnob {
+                            Text("Turn or press the knob now…").fontWeight(.medium)
+                            Note("The first keyboard to send a volume signal becomes the knob.")
+                        } else if let name = state.learnedDevice {
+                            Text("\(name) is the knob.").fontWeight(.medium)
+                            Note("It is ticked in the list below.")
+                        } else {
+                            Text(state.knobConnected ? "A knob keyboard is connected." : "No knob keyboard is connected.")
+                                .fontWeight(.medium)
+                            Note("Epomaker keyboards are ticked automatically when their name gives them away. For any other, press the button and turn the knob.")
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    if state.learningKnob {
+                        Button("Cancel") { state.stopLearningKnob() }
+                    } else {
+                        Button("Find my knob") { state.startLearningKnob() }
+                            .buttonStyle(KKButtonStyle(kind: state.knobConnected ? .outline : .solid))
+                            .disabled(state.hidAccess != .granted)
+                    }
+                }
             }
 
             Card(title: "Connected devices with volume controls") {
@@ -154,13 +181,13 @@ struct FeelView: View {
                           value: $state.config.settings.doublePressInterval, range: 0.15...0.6, step: 0.01, format: ms)
                 Rule()
                 SliderRow(title: "Long press",
-                          help: "How long to hold before a long press fires. The F75 cannot signal long presses (it sends every press as an instant tap), so this only matters for other controllers.",
+                          help: "How long to hold before a long press fires. The F75 sends every press as an instant tap and cannot signal long presses, so this only matters for keyboards that report the knob being held.",
                           value: $state.config.settings.longPressDuration, range: 0.25...1.5, step: 0.05, format: ms)
             }
 
-            Card(title: "Hold and turn (not sent by the F75)") {
+            Card(title: "Hold and turn (depends on the keyboard)") {
                 SliderRow(title: "Chord grace",
-                          help: "The F75 can report a held press as released the instant a turn starts. A release this close to a turn is treated as still held.",
+                          help: "Some keyboards report a held press as released the instant a turn starts. A release this close to a turn is treated as still held.",
                           value: $state.config.settings.chordGrace, range: 0.01...0.12, step: 0.005, format: ms)
                 Rule()
                 SliderRow(title: "Hold memory",
@@ -169,7 +196,7 @@ struct FeelView: View {
             }
 
             Card(title: "Speed") {
-                Note("Over Bluetooth the F75 reports an ordinary continuous turn at about 15 to 25 detents per second, and a quick spin tops out near 33.")
+                Note("The defaults were measured on an F75 over Bluetooth: an ordinary continuous turn reports about 15 to 25 detents per second, and a quick spin tops out near 33. Watch the speeds in the Live monitor to tune them for another keyboard.")
                 SliderRow(title: "Fast turn threshold",
                           help: "Turning faster than this triggers a binding's “when spun fast” action.",
                           value: $state.config.settings.fastThreshold, range: 5...40, step: 1, format: perSecond)
@@ -356,7 +383,7 @@ struct MonitorView: View {
                     VStack(spacing: 14) {
                         DialView(position: 0.5, size: 72).opacity(0.7)
                         Text("Nothing yet. Turn the knob.").fontWeight(.medium)
-                        Text("If only the keyboard's own lighting changes, the knob is in the F75's lighting mode and sends nothing to the Mac. Hold the knob down for 3 to 5 seconds to switch it to volume mode.")
+                        Text("If only the keyboard's own lighting changes, the knob is in its lighting mode and sends nothing to the Mac. On the F75, hold the knob down for 3 to 5 seconds to switch it to volume mode. If events show up as “not the knob”, use Find my knob under Devices.")
                             .font(.kkCaption)
                             .foregroundStyle(Theme.ink2)
                             .multilineTextAlignment(.center)

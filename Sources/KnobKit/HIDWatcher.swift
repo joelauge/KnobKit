@@ -14,10 +14,18 @@ struct HIDDeviceInfo: Identifiable, Hashable {
     var id: UInt64 { registryID }
     var ref: DeviceRef { DeviceRef(vendorID: vendorID, productID: productID, name: name, transport: transport) }
 
-    /// Heuristic for auto-selecting the F75 on any of its three connections.
-    var looksLikeF75: Bool {
+    /// Heuristic for ticking an Epomaker keyboard the first time it is seen, on any of
+    /// its connections. Names vary by model and by connection, so this only catches the
+    /// obvious ones (0x3554 is the F75's vendor id); "Find my knob" on the Devices page
+    /// covers every other keyboard.
+    var looksLikeEpomaker: Bool {
         let n = name.lowercased()
-        return n.contains("f75") || n.contains("aula") || n.contains("epomaker") || vendorID == 0x3554
+        return n.contains("epomaker") || n.contains("aula") || n.contains("f75") || vendorID == 0x3554
+    }
+
+    /// The Mac's own keyboard, which is never the knob.
+    var isBuiltIn: Bool {
+        name.lowercased().contains("apple internal")
     }
 }
 
@@ -33,7 +41,7 @@ private let hidDeviceCallback: IOHIDDeviceCallback = { context, _, _, _ in
 
 /// Listens to consumer-control usages (volume up / down / mute) on every HID device and
 /// records which device produced each press. The event tap asks this who sent an event,
-/// which is how the F75's knob is told apart from the MacBook's own volume keys.
+/// which is how the keyboard's knob is told apart from the MacBook's own volume keys.
 ///
 /// Only the consumer page is observed; ordinary keystrokes are never read here.
 final class HIDWatcher {

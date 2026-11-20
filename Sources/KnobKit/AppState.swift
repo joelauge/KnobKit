@@ -111,6 +111,11 @@ final class AppState: ObservableObject {
     @Published var hidListening = false
     @Published var tapRunning = false
     @Published var devices: [HIDDeviceInfo] = []
+    /// Waiting for the user to turn the knob so its device can be picked.
+    @Published var learningKnob = false
+    /// Name of the device "Find my knob" just picked.
+    @Published var learnedDevice: String?
+    private var learnTimeout: DispatchWorkItem?
     let monitor = MonitorLog()
     @Published var selection: SidebarItem
 
@@ -287,10 +292,39 @@ final class AppState: ObservableObject {
         if on { config.settings.devices.append(device.ref) }
     }
 
-    /// Called whenever the HID device list changes: remember any F75 we have not seen yet.
+    /// True while a selected knob device is connected.
+    var knobConnected: Bool { devices.contains { isSelected($0) } }
+
+    /// "Find my knob": the next device to send a volume or mute signal becomes the knob.
+    func startLearningKnob() {
+        learnedDevice = nil
+        learningKnob = true
+        learnTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.learningKnob = false }
+        learnTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
+    }
+
+    func stopLearningKnob() {
+        learnTimeout?.cancel()
+        learningKnob = false
+    }
+
+    /// A device sent a volume or mute signal. Main queue.
+    func deviceSpoke(_ device: HIDDeviceInfo) {
+        guard learningKnob, !device.isBuiltIn else { return }
+        stopLearningKnob()
+        if config.settings.deviceMode != .selected { config.settings.deviceMode = .selected }
+        if !isSelected(device) { setSelected(device, true) }
+        learnedDevice = device.name
+        Log.write("learned knob device \(device.name) [\(device.ref.id)] via \(device.transport)")
+    }
+
+    /// Called whenever the HID device list changes: tick any Epomaker keyboard we have
+    /// not seen yet.
     func updateDevices(_ list: [HIDDeviceInfo]) {
         devices = list
-        for d in list where d.looksLikeF75 && !isSelected(d) {
+        for d in list where d.looksLikeEpomaker && !isSelected(d) {
             let known = UserDefaults.standard.stringArray(forKey: "autoSelectedDevices") ?? []
             guard !known.contains(d.ref.id) else { continue }
             UserDefaults.standard.set(known + [d.ref.id], forKey: "autoSelectedDevices")

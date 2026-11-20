@@ -92,7 +92,7 @@ private struct Sidebar: View {
             // Clear of the window's traffic lights.
             VStack(alignment: .leading, spacing: 3) {
                 Text("KNOBKIT").font(.kkDisplay(15)).tracking(1.8)
-                Eyebrow("F75 knob configurator", color: Theme.ink3)
+                Eyebrow("For Epomaker knobs", color: Theme.ink3)
             }
             .padding(.horizontal, 18)
             .padding(.top, 50)

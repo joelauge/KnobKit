@@ -46,9 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.state.updateDevices(devices)
             self.state.hidListening = self.hid.isListening
         }
-        hid.onRaw = { device, usage, value in
+        hid.onRaw = { [weak self] device, usage, value in
             let name = usage == HIDWatcher.usageVolumeUp ? "vol+" : usage == HIDWatcher.usageVolumeDown ? "vol-" : "mute"
             Log.write("  hid \(device.name): \(name) \(value != 0 ? "down" : "up")")
+            if value != 0 {
+                DispatchQueue.main.async { self?.state.deviceSpoke(device) }
+            }
         }
 
         setupMainMenu()

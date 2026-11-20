@@ -15,6 +15,12 @@ struct PopoverView: View {
 
     private var enabled: Bool { state.config.settings.enabled }
 
+    /// The connected keyboard whose knob is in use, or nil when there is none.
+    private var knobName: String? {
+        if state.config.settings.deviceMode == .any { return "Any keyboard" }
+        return state.devices.first { state.isSelected($0) }?.name
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -26,6 +32,15 @@ struct PopoverView: View {
                     PermissionsCard(compact: true)
                 }
                 .padding(16)
+                Rule()
+            } else if knobName == nil {
+                HStack(spacing: 10) {
+                    Note("No knob keyboard is connected. Connect yours, or pick it under Devices.")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Devices") { openConfigurator(.devices) }.buttonStyle(.kkSmall).fixedSize()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 Rule()
             }
             Group {
@@ -49,9 +64,11 @@ struct PopoverView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("KNOBKIT").font(.kkDisplay(13)).tracking(1.6)
-            Eyebrow("F75", color: Theme.ink3)
-            Spacer()
+            Text("KNOBKIT").font(.kkDisplay(13)).tracking(1.6).fixedSize()
+            Eyebrow(knobName ?? "No keyboard", color: knobName == nil ? Theme.warn : Theme.ink3)
+                .truncationMode(.tail)
+                .help(knobName == nil ? "No knob keyboard is connected. Pick one under Devices." : "The keyboard whose knob KnobKit is using")
+            Spacer(minLength: 8)
             Toggle(isOn: $state.config.settings.enabled) {
                 Eyebrow(enabled ? "On" : "Off")
             }

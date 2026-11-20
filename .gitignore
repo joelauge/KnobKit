@@ -1,0 +1,15 @@
+# SwiftPM build products
+.build/
+.swiftpm/
+Package.resolved
+
+# Assembled app bundle (scripts/build.sh)
+build/
+
+# Xcode
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
